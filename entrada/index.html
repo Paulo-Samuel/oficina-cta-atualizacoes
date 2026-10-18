@@ -290,14 +290,14 @@
       barra.firstElementChild.style.width = '100%';
       $('#enviada-texto').textContent = `${placa} · ${enviadas.length} foto(s). A OS aparece no programa em até 1 minuto (com o computador ligado).`;
       limparFormulario();
-      mostrar('tela-enviada', 'tela-envios', 'rodape');
+      mostrar('tela-enviada', 'rodape');
       carregarEnvios();
     } catch (e) {
       aviso(msg, `${e.message} Nada se perde: toque em Enviar de novo.`, 'erro');
       if (/não está mais conectado/.test(e.message)) { guardar('cta-aparelho', null); aparelho = null; }
     } finally { botao.disabled = false; barra.hidden = true; barra.firstElementChild.style.width = '0'; }
   });
-  $('#nova').addEventListener('click', () => { mostrar('tela-entrada', 'tela-envios', 'rodape'); window.scrollTo(0, 0); $('#placa').focus(); });
+  $('#nova').addEventListener('click', () => { mostrar('tela-entrada', 'rodape'); carregarEnvios(); window.scrollTo(0, 0); $('#placa').focus(); });
 
   // ---------- listas da oficina e ultimas entradas ----------
   async function carregarListas() {
@@ -333,7 +333,7 @@
     $('#oficina').textContent = aparelho.oficina || 'Oficina conectada';
     $('#rodape-texto').textContent = `Conectado como ${aparelho.nome || 'celular'}`;
     if (!$('#fotos').children.length) limparFormulario();
-    mostrar('tela-entrada', 'tela-envios', 'rodape');
+    mostrar('tela-entrada', 'rodape');  // a lista de envios aparece quando houver (carregarEnvios)
     carregarListas();
     carregarEnvios();
   }
