@@ -84,6 +84,11 @@
   .qtd b { min-width: 26px; text-align: center; }
   .sac-item:not(.marcado) .qtd { opacity: .35; pointer-events: none; }
   #sac-itens { margin-top: 10px; }
+  .pacotes { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 8px; }
+  .pacotes button { flex: 1 1 140px; padding: 12px 10px; border: 2px solid var(--cor); border-radius: 12px; background: var(--card); color: var(--cor); font-weight: 700; font-size: 15px; }
+  .pacotes button.ativo { background: var(--cor); color: #fff; }
+  @media (prefers-color-scheme: dark) { .pacotes button.ativo { color: #2c1b0f; } }
+  .pacotes small { display: block; font-weight: 500; font-size: 12px; opacity: .85; }
   ul.envios .sac { display: block; margin-top: 3px; font-size: 12px; }
   .dica-placa { margin-top: 6px; font-size: 13px; font-weight: 600; text-align: center; }
   .dica-placa.conhecida { color: var(--ok); }
@@ -312,12 +317,30 @@
     Object.keys(sacQtd).forEach(k => delete sacQtd[k]);
     $('#sac-sub').textContent = 'O programa registra a parada com estas fotos e monta o orçamento com os itens marcados'
       + (sac.concluir ? ', já mandando para a aprovação da Unidas.' : '; o escritório confere e conclui.');
-    $('#sac-itens').innerHTML = sac.itens.map((i, n) => {
+    const pacotes = (sac.pacotes || []).map((p, n) => `<button type="button" data-pacote="${n}">${esc(p.nome)}<small>${esc(p.itens.map(i => nomeItem(i.nome).split(' ')[0] + (i.quantidade > 1 ? ` ×${i.quantidade}` : '')).join(' + '))}</small></button>`).join('');
+    $('#sac-itens').innerHTML = (pacotes ? `<div class="pacotes">${pacotes}</div>` : '') + sac.itens.map((i, n) => {
       sacQtd[i.nome] = i.quantidade || 1;
       return `<div class="sac-item" data-nome="${esc(i.nome)}"><label><input type="checkbox" id="sac-${n}"><span>${esc(i.rotulo || i.nome)}</span></label>
         <div class="qtd"><button type="button" data-mais="-1" aria-label="Menos">−</button><b>${sacQtd[i.nome]}</b><button type="button" data-mais="1" aria-label="Mais">+</button></div></div>`;
     }).join('');
     mostrarItensSac();
+  }
+  // pacote (ex.: Revisao 5W30): um toque marca os itens dele com as quantidades; troca de pacote
+  // desmarca os do outro e deixa o resto (ex.: pneu) como estava
+  function marcarItem(nome, marcado, quantidade) {
+    const item = [...document.querySelectorAll('.sac-item')].find(d => d.dataset.nome === nome);
+    if (!item) return;
+    item.querySelector('input').checked = marcado;
+    item.classList.toggle('marcado', marcado);
+    if (quantidade) { sacQtd[nome] = quantidade; item.querySelector('b').textContent = quantidade; }
+  }
+  function usarPacote(n) {
+    const lista = sac.pacotes || [];
+    const escolhido = lista[n];
+    const dele = new Set(escolhido.itens.map(i => i.nome));
+    lista.forEach((p, m) => { if (m !== n) p.itens.forEach(i => { if (!dele.has(i.nome)) marcarItem(i.nome, false); }); });
+    escolhido.itens.forEach(i => marcarItem(i.nome, true, i.quantidade));
+    document.querySelectorAll('[data-pacote]').forEach(b => b.classList.toggle('ativo', Number(b.dataset.pacote) === n));
   }
   function mostrarItensSac() { $('#sac-itens').hidden = !$('#sac-liga').checked; }
   $('#sac-liga').addEventListener('change', () => { sacMexido = true; mostrarItensSac(); });
@@ -328,6 +351,8 @@
   });
   $('#sac-itens').addEventListener('change', ev => { const item = ev.target.closest('.sac-item'); if (item) item.classList.toggle('marcado', ev.target.checked); });
   $('#sac-itens').addEventListener('click', ev => {
+    const pacote = ev.target.closest('[data-pacote]');
+    if (pacote) { usarPacote(Number(pacote.dataset.pacote)); return; }
     const b = ev.target.closest('[data-mais]');
     if (!b) return;
     const item = b.closest('.sac-item');
