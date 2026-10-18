@@ -71,6 +71,20 @@
   .rodape { text-align: center; font-size: 13px; color: var(--apagado); }
   .rodape button { background: none; border: 0; color: var(--cor); text-decoration: underline; font-size: 13px; padding: 4px; }
   .grande { font-size: 44px; text-align: center; margin: 4px 0; }
+  .liga { display: flex; gap: 12px; align-items: flex-start; cursor: pointer; }
+  .liga input { width: 24px; height: 24px; margin: 2px 0 0; flex: none; accent-color: var(--cor); }
+  .liga b { display: block; font-size: 16px; }
+  .liga small { display: block; color: var(--apagado); font-size: 13px; }
+  .sac-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--borda); }
+  .sac-item:last-child { border-bottom: 0; }
+  .sac-item label { display: flex; align-items: center; gap: 10px; flex: 1; font-size: 15px; cursor: pointer; }
+  .sac-item input { width: 22px; height: 22px; margin: 0; flex: none; accent-color: var(--cor); }
+  .qtd { display: flex; align-items: center; gap: 4px; }
+  .qtd button { width: 36px; height: 36px; border: 1px solid var(--borda); border-radius: 9px; background: var(--bg); color: var(--texto); font-size: 18px; font-weight: 700; }
+  .qtd b { min-width: 26px; text-align: center; }
+  .sac-item:not(.marcado) .qtd { opacity: .35; pointer-events: none; }
+  #sac-itens { margin-top: 10px; }
+  ul.envios .sac { display: block; margin-top: 3px; font-size: 12px; }
 </style>
 </head>
 <body>
@@ -108,6 +122,10 @@
       <p class="apagado">Toque em cada quadro para tirar a foto.</p>
       <div class="fotos" id="fotos"></div>
     </div>
+    <div class="card" id="card-sac" hidden>
+      <label class="liga"><input type="checkbox" id="sac-liga"><span><b>SAC da Unidas: parada e orçamento</b><small id="sac-sub">O programa registra a parada com estas fotos e monta o orçamento com os itens marcados.</small></span></label>
+      <div id="sac-itens" hidden></div>
+    </div>
     <button class="botao" type="submit" id="enviar">Enviar entrada</button>
     <div class="barra" id="barra" hidden><i></i></div>
     <div class="msg" id="msg-envio" hidden></div>
@@ -142,6 +160,9 @@
   let aparelho = ler('cta-aparelho');  // {aparelho_id, oficina_id, oficina, nome}
   const fotos = {};                    // tipo -> Blob (ja reduzida)
   let extras = 0;
+  let sac = null;                      // {itens: [{nome, rotulo, quantidade}], concluir} -- o programa manda nas listas
+  let sacMexido = false;               // a pessoa marcou/desmarcou o SAC: nao muda mais sozinho pelo cliente
+  const sacQtd = {};                   // nome -> quantidade escolhida
 
   function mostrar(...ids) {
     ['tela-desconectado', 'tela-conectar', 'tela-entrada', 'tela-enviada', 'tela-envios', 'rodape'].forEach(id => { $('#' + id).hidden = !ids.includes(id); });
@@ -250,7 +271,49 @@
     contar();
     aviso($('#msg-envio'), '');
     entradaId = null;
+    sacMexido = false;
+    montarSac();
   }
+
+  // ---------- SAC da Unidas: parada e orcamento (o programa faz no portal, sac_celular.py) ----------
+  function montarSac() {
+    const card = $('#card-sac');
+    card.hidden = !(sac && sac.itens && sac.itens.length);
+    if (card.hidden) { $('#sac-liga').checked = false; return; }
+    Object.keys(sacQtd).forEach(k => delete sacQtd[k]);
+    $('#sac-sub').textContent = 'O programa registra a parada com estas fotos e monta o orçamento com os itens marcados'
+      + (sac.concluir ? ', já mandando para a aprovação da Unidas.' : '; o escritório confere e conclui.');
+    $('#sac-itens').innerHTML = sac.itens.map((i, n) => {
+      sacQtd[i.nome] = i.quantidade || 1;
+      return `<div class="sac-item" data-nome="${esc(i.nome)}"><label><input type="checkbox" id="sac-${n}"><span>${esc(i.rotulo || i.nome)}</span></label>
+        <div class="qtd"><button type="button" data-mais="-1" aria-label="Menos">−</button><b>${sacQtd[i.nome]}</b><button type="button" data-mais="1" aria-label="Mais">+</button></div></div>`;
+    }).join('');
+    mostrarItensSac();
+  }
+  function mostrarItensSac() { $('#sac-itens').hidden = !$('#sac-liga').checked; }
+  $('#sac-liga').addEventListener('change', () => { sacMexido = true; mostrarItensSac(); });
+  $('#cliente').addEventListener('input', ev => {  // cliente Unidas: ja marca o SAC (a pessoa pode desmarcar)
+    if (sacMexido || $('#card-sac').hidden) return;
+    $('#sac-liga').checked = /unidas/i.test(ev.target.value);
+    mostrarItensSac();
+  });
+  $('#sac-itens').addEventListener('change', ev => { const item = ev.target.closest('.sac-item'); if (item) item.classList.toggle('marcado', ev.target.checked); });
+  $('#sac-itens').addEventListener('click', ev => {
+    const b = ev.target.closest('[data-mais]');
+    if (!b) return;
+    const item = b.closest('.sac-item');
+    const nome = item.dataset.nome;
+    sacQtd[nome] = Math.min(99, Math.max(1, (sacQtd[nome] || 1) + Number(b.dataset.mais)));
+    item.querySelector('b').textContent = sacQtd[nome];
+  });
+  function pedidoSac() {
+    if ($('#card-sac').hidden || !$('#sac-liga').checked) return null;
+    const itens = [...document.querySelectorAll('.sac-item')].filter(d => d.querySelector('input').checked)
+      .map(d => ({ nome: d.dataset.nome, quantidade: sacQtd[d.dataset.nome] || 1 }));
+    const agora = new Date();
+    return { itens, hora: `${String(agora.getHours()).padStart(2, '0')}:${String(agora.getMinutes()).padStart(2, '0')}` };
+  }
+  const nomeItem = nome => ((sac && sac.itens || []).find(i => i.nome === nome) || {}).rotulo || nome;
 
   // ---------- enviar: fotos na pasta da oficina, depois a entrada ----------
   let entradaId = null;  // o mesmo id se a pessoa tentar de novo (as fotos que ja foram nao sobem em dobro)
@@ -262,7 +325,14 @@
     if (!/^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$/.test(placa)) { aviso(msg, 'Placa inválida: use o formato ABC1D23 ou ABC1234.', 'erro'); return; }
     if (!$('#cliente').value.trim()) { aviso(msg, 'Informe o cliente.', 'erro'); return; }
     const lista = Object.entries(fotos);
-    if (!lista.length && !confirm('Enviar sem nenhuma foto?')) return;
+    const pedido = pedidoSac();
+    if (pedido) {
+      if (!pedido.itens.length) { aviso(msg, 'Marque os itens do orçamento do SAC (ou desmarque o SAC da Unidas).', 'erro'); return; }
+      if (!lista.length) { aviso(msg, 'O SAC da Unidas pede as fotos do carro na parada: tire pelo menos uma.', 'erro'); return; }
+      const resumo = pedido.itens.map(i => `• ${nomeItem(i.nome)}${i.quantidade > 1 ? ` (${i.quantidade})` : ''}`).join('\n');
+      if (!confirm(`SAC da Unidas para ${placa}:\nparada às ${pedido.hora}, com ${lista.length} foto(s), e o orçamento com:\n${resumo}\n\n`
+        + (sac.concluir ? 'O orçamento vai direto para a aprovação da Unidas. Confirma?' : 'O escritório confere e conclui. Confirma?'))) return;
+    } else if (!lista.length && !confirm('Enviar sem nenhuma foto?')) return;
     const botao = $('#enviar');
     botao.disabled = true;
     const barra = $('#barra');
@@ -282,13 +352,15 @@
       aviso(msg, 'Gravando a entrada…');
       barra.firstElementChild.style.width = '92%';
       const km = parseInt($('#km').value.replace(/\D/g, ''), 10);
+      const corpo = { id: entradaId, placa, cliente: $('#cliente').value.trim(), empresa: $('#empresa').value || null,
+        km: Number.isFinite(km) ? km : null, reclamacao: $('#reclamacao').value.trim() || null, fotos: enviadas };
+      if (pedido) corpo.sac = pedido;  // so com o SAC: a coluna so existe com supabase/sac_celular.sql
       try {
-        await chamar('POST', '/rest/v1/entradas_veiculo', { id: entradaId, placa, cliente: $('#cliente').value.trim(), empresa: $('#empresa').value || null,
-          km: Number.isFinite(km) ? km : null, reclamacao: $('#reclamacao').value.trim() || null, fotos: enviadas },
-          { ...(await comToken()), Prefer: 'return=minimal' });
+        await chamar('POST', '/rest/v1/entradas_veiculo', corpo, { ...(await comToken()), Prefer: 'return=minimal' });
       } catch (e) { if (e.status !== 409) throw e; }  // ja gravada numa tentativa anterior
       barra.firstElementChild.style.width = '100%';
-      $('#enviada-texto').textContent = `${placa} · ${enviadas.length} foto(s). A OS aparece no programa em até 1 minuto (com o computador ligado).`;
+      $('#enviada-texto').textContent = `${placa} · ${enviadas.length} foto(s). A OS aparece no programa em até 1 minuto (com o computador ligado).`
+        + (pedido ? ' Em seguida o programa faz a parada e o orçamento no SAC da Unidas: acompanhe aqui embaixo.' : '');
       limparFormulario();
       mostrar('tela-enviada', 'rodape');
       carregarEnvios();
@@ -302,8 +374,18 @@
   // ---------- listas da oficina e ultimas entradas ----------
   async function carregarListas() {
     try {
-      const [l] = await chamar('GET', '/rest/v1/oficina_listas?select=nome,clientes,empresas', undefined, await comToken()) || [];
+      let lista;
+      try {
+        lista = await chamar('GET', '/rest/v1/oficina_listas?select=nome,clientes,empresas,sac', undefined, await comToken());
+      } catch (e) {  // servidor ainda sem o SAC pelo celular: segue sem ele
+        if (e.status !== 400) throw e;
+        lista = await chamar('GET', '/rest/v1/oficina_listas?select=nome,clientes,empresas', undefined, await comToken());
+      }
+      const [l] = lista || [];
       if (!l) return;
+      const antes = JSON.stringify(sac);
+      sac = l.sac || null;
+      if (JSON.stringify(sac) !== antes) montarSac();
       if (l.nome) { $('#oficina').textContent = l.nome; aparelho.oficina = l.nome; guardar('cta-aparelho', aparelho); }
       $('#lista-clientes').innerHTML = (l.clientes || []).map(c => `<option value="${esc(c)}">`).join('');
       const emp = l.empresas || [];
@@ -311,14 +393,28 @@
       $('#empresa').innerHTML = emp.map(e => `<option value="${esc(e.cnpj)}">${esc(e.apelido)}</option>`).join('');
     } catch (e) { /* sem internet: segue sem a lista */ }
   }
+  const SAC_SITUACOES = { pendente: ['espera', 'SAC: na fila do programa'], rodando: ['espera', 'SAC: enviando ao portal…'],
+    concluido: ['ok', 'SAC: orçamento enviado para aprovação'], preenchido: ['espera', 'SAC: orçamento preenchido (falta concluir)'],
+    erro: ['erro', 'SAC com problema'] };
   async function carregarEnvios() {
     try {
-      const lista = await chamar('GET', '/rest/v1/entradas_veiculo?select=placa,enviada_em,importada_em,os_numero,erro&order=enviada_em.desc&limit=8', undefined, await comToken()) || [];
+      const campos = 'placa,enviada_em,importada_em,os_numero,erro';
+      const caminho = c => `/rest/v1/entradas_veiculo?select=${c}&order=enviada_em.desc&limit=8`;
+      let lista;
+      try {
+        lista = await chamar('GET', caminho(campos + ',sac_situacao,sac_mensagem'), undefined, await comToken());
+      } catch (e) {
+        if (e.status !== 400) throw e;
+        lista = await chamar('GET', caminho(campos), undefined, await comToken());  // servidor sem o SAC pelo celular
+      }
+      lista = lista || [];
       $('#tela-envios').hidden = !lista.length;
       $('#envios').innerHTML = lista.map(e => {
         const quando = new Date(e.enviada_em).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
         const sit = e.importada_em ? `<span class="situacao ok">OS ${e.os_numero} criada</span>` : e.erro ? `<span class="situacao erro" title="${esc(e.erro)}">com problema</span>` : '<span class="situacao espera">aguardando o programa</span>';
-        return `<li><span><b>${esc(e.placa)}</b><br><span class="apagado">${quando}</span></span>${sit}</li>`;
+        const [classe, texto] = SAC_SITUACOES[e.sac_situacao] || [];
+        const sacLinha = texto ? `<span class="sac situacao ${classe}">${texto}${e.sac_situacao === 'erro' && e.sac_mensagem ? `: ${esc(e.sac_mensagem)}` : ''}</span>` : '';
+        return `<li><span><b>${esc(e.placa)}</b><br><span class="apagado">${quando}</span>${sacLinha}</span>${sit}</li>`;
       }).join('');
     } catch (e) { /* sem internet */ }
   }
