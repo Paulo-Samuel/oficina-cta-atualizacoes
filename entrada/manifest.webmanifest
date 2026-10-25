@@ -1,14 +1,14 @@
 {
-  "name": "Entrada CTA",
-  "short_name": "Entrada CTA",
-  "description": "Entrada do veículo pelo celular (Oficina CTA)",
+  "name": "Go Tech · Entrada",
+  "short_name": "Go Tech",
+  "description": "Entrada do veículo pelo celular (Go Tech)",
   "lang": "pt-BR",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#252629",
-  "theme_color": "#ad4a12",
+  "background_color": "#0e1a33",
+  "theme_color": "#0e1a33",
   "icons": [
     {
       "src": "icone-192.png",
