@@ -141,7 +141,7 @@
         <label class="campo">Cliente<input id="cliente" list="lista-clientes" placeholder="Locadora, empresa ou pessoa física" autocapitalize="words"></label>
         <datalist id="lista-clientes"></datalist>
         <label class="campo" id="campo-empresa" hidden>Empresa<select id="empresa"></select></label>
-        <label class="campo">KM no painel<input id="km" inputmode="numeric" pattern="[0-9.]*" placeholder="Ex.: 45230"></label>
+        <label class="campo">KM no painel *<input id="km" inputmode="numeric" pattern="[0-9.]*" placeholder="Ex.: 45230" required></label>
         <label class="campo">Reclamação do cliente<textarea id="reclamacao" placeholder="O que o cliente relatou (dá para ditar pelo microfone do teclado)"></textarea></label>
       </div>
     </div>
@@ -465,7 +465,13 @@
         + (sac.concluir ? 'O orçamento vai direto para a aprovação da Unidas. Confirma?' : 'O escritório confere e conclui. Confirma?'))) return;
     } else {
       if (!$('#cliente').value.trim() && !veiculos[placa]) { aviso(msg, 'Placa nova: informe o cliente.', 'erro'); $('#cliente').focus(); return; }
-      if (!lista.length && !confirm('Abrir a OS sem nenhuma foto?')) return;
+      // km obrigatorio (27/10/2026, pedido da matriz): sem km do painel a entrada nao vai
+      const kmDigitado = parseInt($('#km').value.replace(/\D/g, ''), 10);
+      if (!Number.isFinite(kmDigitado) || kmDigitado < 10) { aviso(msg, 'Informe o KM do painel do carro: sem ele a OS não abre.', 'erro'); $('#km').focus(); return; }
+      const ultimoKm = (veiculos[placa] || {}).km;
+      if (ultimoKm && kmDigitado < ultimoKm && !confirm(`O km ${kmDigitado.toLocaleString('pt-BR')} é menor que o último deste carro (${Number(ultimoKm).toLocaleString('pt-BR')}). O painel foi trocado? Toque OK para mandar assim mesmo.`)) { $('#km').focus(); return; }
+      // foto obrigatoria (27-28/10/2026, pedido da matriz): pelo menos uma, de qualquer lado e quantas quiser
+      if (!lista.length) { aviso(msg, 'Tire pelo menos uma foto do carro: sem foto a OS não abre.', 'erro'); return; }
     }
     const botao = $('#enviar');
     botao.disabled = true;
