@@ -6,100 +6,162 @@
 <meta name="robots" content="noindex, nofollow">
 <meta name="referrer" content="no-referrer">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src https://ysoiqefnkjtessyhwzug.supabase.co; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
-<meta name="theme-color" content="#0e1a33">
+<meta name="theme-color" content="#0b1120">
 <title>Go Tech · Pátio</title>
 <!--
   Painel do pátio no navegador (Go Tech, 04/11/2026; docs/SINCRONIZACAO.md §9). Pedido do Ronan: o menino do
   pátio vê a OS que a recepção abriu, na TV ou num computador qualquer, SEM instalar o programa.
   - Só para ver: nenhum botão muda OS. Lê só a função public.patio_web_painel (supabase/patio_web.sql), que
-    devolve placa, modelo, cliente (nome), mecânico, situação, etapa e datas -- nada de CPF/CNPJ nem valores.
+    devolve placa, modelo, cliente (nome), mecânico, situação, etapa, datas e o relógio do mecânico -- nada de
+    CPF/CNPJ nem valores.
+  - O mesmo quadro do Pátio do programa no modo TV (feedback do Ronan, 04/11/2026): uma coluna por etapa, na ordem
+    do programa (banco.ETAPAS_OS), com o contador; as etapas desmarcadas no programa somem (a não ser que tenham
+    carro); a OS finalizada SAI do quadro e vai para a faixa "Entregues/finalizadas hoje"; o relógio do mecânico
+    ("na bancada há 1h20") ao lado do tempo da OS ("aberta há 15 h"); letras A-/A+ de 50% a 150%.
+  - Funciona com a função antiga (sem 'finalizadas_hoje', 'relogio' e 'etapas'): separa as finalizadas aqui, mostra
+    só o tempo da OS e usa as colunas padrão.
   - Entra com o login da equipe (ou o e-mail da conta) e a senha, no Auth do Supabase. Na página vai só a chave
     PÚBLICA (anon); quem protege os dados é o RLS/oficina_da_sessao() no servidor. Nunca uma chave service_role.
   - Atualiza sozinha: a cada 5 s com a página visível (a resposta é minúscula quando nada mudou), 30 s escondida.
   - https://ysoiqefnkjtessyhwzug.supabase.co e sb_publishable_01273TSKNqVnSbDioqcJZA_yxmcH8lR são trocados na publicação (scripts/publicar_patio_web.py).
 -->
 <style>
-  :root { --bg: #eef1f6; --card: #fff; --texto: #1d2533; --apagado: #5a6478; --borda: #d9dfea; --cor: #2457e6; --cor-clara: #e3ebff;
-    --ok: #1f7a4d; --ok-claro: #e2f4ea; --alerta: #9a5b00; --alerta-claro: #fff1d6; --ruim: #b8322c; --ruim-claro: #fde8e6;
-    --topo: #0e1a33; --placa-fundo: #fff; --placa-borda: #1d2533; --placa-faixa: #2457e6; color-scheme: light; }
-  :root[data-tema="escuro"] { --bg: #0a0f1c; --card: #141c2e; --texto: #eef1f7; --apagado: #a8b2c6; --borda: #27314a; --cor: #8fb0ff; --cor-clara: #1b2a52;
-    --ok: #8fd6aa; --ok-claro: #193626; --alerta: #ffcb70; --alerta-claro: #3a2c10; --ruim: #f39a90; --ruim-claro: #3d2120;
-    --topo: #050913; --placa-fundo: #f3f5f9; --placa-borda: #000; --placa-faixa: #2457e6; color-scheme: dark; }
-  @media (prefers-color-scheme: dark) { :root:not([data-tema="claro"]) { --bg: #0a0f1c; --card: #141c2e; --texto: #eef1f7; --apagado: #a8b2c6; --borda: #27314a;
-    --cor: #8fb0ff; --cor-clara: #1b2a52; --ok: #8fd6aa; --ok-claro: #193626; --alerta: #ffcb70; --alerta-claro: #3a2c10; --ruim: #f39a90;
-    --ruim-claro: #3d2120; --topo: #050913; --placa-fundo: #f3f5f9; --placa-borda: #000; color-scheme: dark; } }
-  /* escala pela largura: 1080p ~22px, 4K ~40px, celular 15px */
+  /* cores: as mesmas do painel do programa (assets/painel/painel.css), escuro por padrao (TV) */
+  :root { --bg: #f4f6fa; --card: #fff; --card-2: #f7f9fc; --texto: #2b3445; --apagado: #566074; --borda: #e2e7f0; --borda-forte: #c8d0de;
+    --cor: #2457e6; --ok: #23744c; --ok-dim: #e9f5ed; --alerta: #946119; --alerta-dim: #fff4dd; --ruim: #bd423d; --ruim-dim: #fff0ee;
+    --topo: #0e1a33; --placa-fundo: #fff; --placa-borda: #1d2533; --placa-faixa: #2457e6;
+    --pt-neutro: #5c5f63; --pt-neutro-dim: #efeeec; --pt-azul: #2558a8; --pt-azul-dim: #e8f0fc; --pt-roxo: #6a3fb0; --pt-roxo-dim: #f1ebfb;
+    --pt-ciano: #0d6f69; --pt-ciano-dim: #e2f3f1; --pt-anil: #3d45a3; --pt-anil-dim: #ebecfa; --pt-rosa: #a3326a; --pt-rosa-dim: #fbe9f2;
+    --pt-ardosia: #4a5870; --pt-ardosia-dim: #ebeff4; --pt-laranja: #ad4a12; --pt-laranja-dim: #fff0e4; color-scheme: light; }
+  :root[data-tema="escuro"] { --bg: #0b1120; --card: #151d30; --card-2: #1a2338; --texto: #eef1f7; --apagado: #a9b3c6; --borda: #263049; --borda-forte: #3a4766;
+    --cor: #8fb0ff; --ok: #98d7ad; --ok-dim: #243e2e; --alerta: #e9c37b; --alerta-dim: #3b3321; --ruim: #f29c92; --ruim-dim: #412b29;
+    --topo: #070c18; --placa-fundo: #f3f5f9; --placa-borda: #000;
+    --pt-neutro: #c9c6c1; --pt-neutro-dim: #2f2f34; --pt-azul: #9cc0ff; --pt-azul-dim: #1f2b40; --pt-roxo: #c9a8ff; --pt-roxo-dim: #2c2440;
+    --pt-ciano: #7fd6cc; --pt-ciano-dim: #1b3533; --pt-anil: #aab0ff; --pt-anil-dim: #252842; --pt-rosa: #f5a3c9; --pt-rosa-dim: #3d2232;
+    --pt-ardosia: #b4c0d4; --pt-ardosia-dim: #283039; --pt-laranja: #f2a56f; --pt-laranja-dim: #422e23; color-scheme: dark; }
+  @media (prefers-color-scheme: dark) { :root[data-tema="auto"] { --bg: #0b1120; --card: #151d30; --card-2: #1a2338; --texto: #eef1f7; --apagado: #a9b3c6;
+    --borda: #263049; --borda-forte: #3a4766; --cor: #8fb0ff; --ok: #98d7ad; --ok-dim: #243e2e; --alerta: #e9c37b; --alerta-dim: #3b3321;
+    --ruim: #f29c92; --ruim-dim: #412b29; --topo: #070c18; --placa-fundo: #f3f5f9; --placa-borda: #000;
+    --pt-neutro: #c9c6c1; --pt-neutro-dim: #2f2f34; --pt-azul: #9cc0ff; --pt-azul-dim: #1f2b40; --pt-roxo: #c9a8ff; --pt-roxo-dim: #2c2440;
+    --pt-ciano: #7fd6cc; --pt-ciano-dim: #1b3533; --pt-anil: #aab0ff; --pt-anil-dim: #252842; --pt-rosa: #f5a3c9; --pt-rosa-dim: #3d2232;
+    --pt-ardosia: #b4c0d4; --pt-ardosia-dim: #283039; --pt-laranja: #f2a56f; --pt-laranja-dim: #422e23; color-scheme: dark; } }
+  /* escala pela largura (topo e tela de entrada): 1366 ~17px, 1080p ~22px, 4K ~40px, celular 15px */
   html { font-size: clamp(15px, 0.95vw + 4px, 42px); }
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
-  body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--texto); font: 1rem/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  html, body { height: 100%; }
+  /* TV: a pagina NUNCA rola; cada coluna rola sozinha se tiver carro demais (como o modo TV do programa) */
+  body { margin: 0; display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden; background: var(--bg); color: var(--texto);
+    font: 1rem/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; --e: .8; }
   button, input { font: inherit; }
-  header { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: .8rem; padding: .55rem 1.2rem; background: var(--topo); color: #fff; }
-  header h1 { margin: 0; font-size: 1.25rem; letter-spacing: .01em; }
-  header .oficina { color: #c9d3e6; font-size: .85rem; }
+  header { flex: 0 0 auto; display: flex; align-items: center; flex-wrap: wrap; gap: .3rem .7rem; padding: .4rem 1rem; background: var(--topo); color: #fff; }
+  header h1 { margin: 0; font-size: 1.15rem; letter-spacing: .01em; }
+  header .oficina { color: #c9d3e6; font-size: .75rem; }
   header .esp { flex: 1; }
-  .relogio { font: 700 1.5rem/1 ui-monospace, Consolas, monospace; }
-  .sinal { display: inline-flex; align-items: center; gap: .35rem; font-size: .8rem; color: #c9d3e6; white-space: nowrap; }
+  .total { font-size: .8rem; color: #c9d3e6; white-space: nowrap; }
+  .total b { color: #fff; font-variant-numeric: tabular-nums; }
+  .relogio { font: 700 1.35rem/1 ui-monospace, "Cascadia Mono", Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .sinal { display: inline-flex; align-items: center; gap: .35rem; font-size: .75rem; color: #c9d3e6; white-space: nowrap; }
   .sinal::before { content: ""; width: .6rem; height: .6rem; border-radius: 50%; background: #3ccf7d; }
   .sinal[data-estado="atrasado"]::before { background: #ffb020; }
   .sinal[data-estado="parado"]::before { background: #ff5a4f; }
-  .icone { border: 1px solid #ffffff40; background: #ffffff14; color: #fff; border-radius: .5rem; padding: .3rem .6rem; font-size: .8rem; cursor: pointer; }
+  .icone { border: 1px solid #ffffff40; background: #ffffff14; color: #fff; border-radius: .45rem; padding: .22rem .55rem; font-size: .72rem; cursor: pointer; white-space: nowrap; }
   .icone:hover, .icone:focus-visible { background: #ffffff2a; outline: none; }
-  main { padding: 1rem 1.2rem 2rem; }
-  .avisos { display: grid; gap: .5rem; margin-bottom: .8rem; }
-  .aviso { padding: .5rem .8rem; border-radius: .6rem; font-size: .85rem; background: var(--alerta-claro); color: var(--alerta); }
-  .aviso.ruim { background: var(--ruim-claro); color: var(--ruim); }
-  section { margin-bottom: 1.2rem; }
-  h2 { display: flex; align-items: baseline; gap: .5rem; margin: 0 0 .6rem; font-size: 1.1rem; }
-  h2 .n { display: inline-grid; place-items: center; min-width: 1.6rem; padding: 0 .4rem; height: 1.6rem; border-radius: .8rem; background: var(--cor); color: #fff; font-size: .85rem; }
-  #entrega h2 .n { background: var(--ok); }
-  :root[data-tema="escuro"] h2 .n { color: #0a0f1c; }
-  .grade { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 15.5rem), 1fr)); gap: .8rem; }
-  .carro { position: relative; display: flex; flex-direction: column; gap: .35rem; padding: .75rem .85rem .7rem; border-radius: .8rem; background: var(--card);
-    border: 1px solid var(--borda); border-left: .35rem solid var(--apagado); box-shadow: 0 1px 3px #0000000f; }
-  .carro[data-status="em_execucao"] { border-left-color: var(--cor); }
-  .carro[data-status="aberta"] { border-left-color: var(--alerta); }
-  .carro.pronto { border-left-color: var(--ok); }
+  .icone:disabled { opacity: .4; cursor: default; }
+  .zoom { display: inline-flex; align-items: center; gap: .25rem; }
+  .zoom output { min-width: 3.1em; text-align: center; font-size: .75rem; font-weight: 650; font-variant-numeric: tabular-nums; }
+  main { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: .5rem; padding: .55rem .7rem .5rem; }
+  .avisos { flex: 0 0 auto; display: grid; gap: .35rem; }
+  .avisos:empty { display: none; }
+  .aviso { padding: .35rem .7rem; border-radius: .5rem; font-size: .75rem; background: var(--alerta-dim); color: var(--alerta); }
+  .aviso.ruim { background: var(--ruim-dim); color: var(--ruim); }
+  /* o quadro: uma coluna por etapa; as que nao cabem descem para outra linha; letras pela largura da coluna (cqi) e pelo A-/A+ */
+  .quadro { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(calc(max(140px, 7.3vw) * var(--e)), 1fr));
+    grid-auto-rows: minmax(0, 1fr); align-items: stretch; gap: 10px; overflow: hidden; }
+  .coluna { --c: var(--pt-neutro); --c-dim: var(--pt-neutro-dim); container-type: inline-size; min-width: 0; min-height: 0; display: flex; flex-direction: column;
+    background: var(--card-2); border: 1px solid var(--borda); border-top: 4px solid var(--c); border-radius: 10px; }
+  .coluna[data-cor="azul"] { --c: var(--pt-azul); --c-dim: var(--pt-azul-dim); }
+  .coluna[data-cor="roxo"] { --c: var(--pt-roxo); --c-dim: var(--pt-roxo-dim); }
+  .coluna[data-cor="ambar"] { --c: var(--alerta); --c-dim: var(--alerta-dim); }
+  .coluna[data-cor="ciano"] { --c: var(--pt-ciano); --c-dim: var(--pt-ciano-dim); }
+  .coluna[data-cor="vermelho"] { --c: var(--ruim); --c-dim: var(--ruim-dim); }
+  .coluna[data-cor="laranja"] { --c: var(--pt-laranja); --c-dim: var(--pt-laranja-dim); }
+  .coluna[data-cor="anil"] { --c: var(--pt-anil); --c-dim: var(--pt-anil-dim); }
+  .coluna[data-cor="rosa"] { --c: var(--pt-rosa); --c-dim: var(--pt-rosa-dim); }
+  .coluna[data-cor="ardosia"] { --c: var(--pt-ardosia); --c-dim: var(--pt-ardosia-dim); }
+  .coluna[data-cor="verde"] { --c: var(--ok); --c-dim: var(--ok-dim); }
+  .coluna-topo { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: calc(8px * var(--e)) calc(10px * var(--e)); background: var(--c-dim); border-radius: 5px 5px 0 0; }
+  .coluna-topo h2 { margin: 0; font-size: calc(clamp(13px, 9cqi, max(27px, 1.4vw)) * var(--e)); line-height: 1.25; overflow-wrap: break-word; min-width: 0; }
+  .contador { flex: 0 0 auto; min-width: 1.9em; padding: 1px .45em; border-radius: 999px; background: var(--c); color: var(--card); font-weight: 700; text-align: center;
+    font-size: calc(clamp(13px, 8cqi, max(24px, 1.25vw)) * var(--e)); font-variant-numeric: tabular-nums; }
+  .lista { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: calc(8px * var(--e)); padding: calc(7px * var(--e)); scrollbar-width: thin; }
+  .coluna-vazia { margin: 0; padding: 12px 6px; text-align: center; color: var(--apagado); border: 1px dashed var(--borda-forte); border-radius: 8px;
+    font-size: calc(clamp(11px, 6cqi, max(17px, .9vw)) * var(--e)); }
+  .carro { position: relative; display: flex; flex-direction: column; gap: 1px; min-width: 0; padding: calc(8px * var(--e)) calc(10px * var(--e)); background: var(--card);
+    border: 1px solid var(--borda); border-left: 4px solid var(--c); border-radius: 8px; box-shadow: 0 1px 2px #0000000f; }
   .carro.novo { animation: brilho 2.4s ease-out 1; }
-  @keyframes brilho { 0% { box-shadow: 0 0 0 .3rem var(--cor); } 100% { box-shadow: 0 1px 3px #0000000f; } }
+  @keyframes brilho { 0% { box-shadow: 0 0 0 .3rem var(--cor); } 100% { box-shadow: 0 1px 2px #0000000f; } }
   @media (prefers-reduced-motion: reduce) { .carro.novo { animation: none; outline: .2rem solid var(--cor); } }
-  .linha1 { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
-  .placa { display: inline-block; padding: .05rem .5rem .1rem; border: .12rem solid var(--placa-borda); border-top-width: .45rem; border-top-color: var(--placa-faixa);
-    border-radius: .35rem; background: var(--placa-fundo); color: #111; font: 800 1.45rem/1.1 ui-monospace, "Cascadia Mono", Consolas, monospace; letter-spacing: .08em; }
-  .tempo { font: 700 1.05rem/1 ui-monospace, Consolas, monospace; color: var(--apagado); white-space: nowrap; }
-  .tempo.muito { color: var(--ruim); }
-  .modelo { font-weight: 700; font-size: 1.02rem; overflow-wrap: anywhere; }
-  .cliente { color: var(--apagado); font-size: .88rem; overflow-wrap: anywhere; }
-  .mecanico { font-size: .92rem; }
-  .mecanico strong { font-weight: 700; }
-  .mecanico.sem { color: var(--alerta); font-weight: 600; }
-  .rodape { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; margin-top: .15rem; }
-  .chip { display: inline-block; padding: .12rem .5rem; border-radius: 1rem; font-size: .78rem; font-weight: 600; background: var(--cor-clara); color: var(--cor); }
-  .chip.aberta { background: var(--alerta-claro); color: var(--alerta); }
-  .chip.pronto { background: var(--ok-claro); color: var(--ok); }
-  .chip.etapa { background: transparent; border: 1px solid var(--borda); color: var(--texto); }
-  .os { margin-left: auto; color: var(--apagado); font-size: .75rem; white-space: nowrap; }
+  .carro-topo { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 0 8px; }
+  .placa { display: inline-block; padding: 0 .3em .05em; border: .08em solid var(--placa-borda); border-top-width: .26em; border-top-color: var(--placa-faixa); border-radius: .2em;
+    background: var(--placa-fundo); color: #111; font: 800 calc(clamp(16px, 15cqi, max(42px, 2.19vw)) * var(--e))/1.1 ui-monospace, "Cascadia Mono", Consolas, monospace; letter-spacing: .06em; }
+  .num { min-width: 0; font-size: calc(clamp(12px, 7cqi, max(20px, 1.05vw)) * var(--e)); color: var(--apagado); overflow-wrap: anywhere; }
+  .modelo { font-weight: 650; font-size: calc(clamp(14px, 9.5cqi, max(27px, 1.4vw)) * var(--e)); overflow-wrap: anywhere; }
+  .cliente { color: var(--apagado); font-size: calc(clamp(12px, 8cqi, max(22px, 1.15vw)) * var(--e)); overflow-wrap: anywhere; }
+  .etapa-chip { align-self: flex-start; margin-top: 3px; padding: 0 .5em; border: 1px solid var(--borda-forte); border-radius: 999px; font-size: calc(clamp(11px, 6.5cqi, max(18px, .95vw)) * var(--e)); }
+  .bancada { display: flex; align-items: center; gap: 4px; margin-top: 5px; padding: 2px 6px; border-radius: 6px; font-weight: 650; color: var(--cor);
+    background: var(--card-2); border: 1px solid var(--borda); font-size: calc(clamp(12px, 7.5cqi, max(20px, 1.05vw)) * var(--e)); }
+  .bancada[data-estado="terminou"] { color: var(--ok); border-color: var(--ok); background: var(--ok-dim); }
+  .rodape { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 10px; margin-top: 5px; color: var(--apagado); font-size: calc(clamp(12px, 7.5cqi, max(20px, 1.05vw)) * var(--e)); }
+  .tempo, .mecanico { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+  .tempo.muito { color: var(--ruim); font-weight: 650; }
+  .mecanico { color: var(--texto); font-weight: 650; overflow-wrap: anywhere; }
+  .mecanico.sem { color: var(--alerta); }
+  svg { width: 1.15em; height: 1.15em; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   .vazio { padding: 1rem; border: 1px dashed var(--borda); border-radius: .8rem; color: var(--apagado); text-align: center; }
+  /* entregues/finalizadas hoje: fora do quadro, uma faixa discreta no rodape (no maximo 2 linhas; as mais novas primeiro) */
+  .finalizadas { flex: 0 0 auto; display: flex; align-items: flex-start; gap: .3rem .7rem; max-height: calc(2 * 1.9em + .5rem); overflow: hidden; padding: .3rem .6rem;
+    border: 1px solid var(--borda); border-radius: .6rem; background: var(--card-2); color: var(--apagado); font-size: calc(.75rem * var(--e) / .8); }
+  .finalizadas > strong { flex: 0 0 auto; color: var(--ok); white-space: nowrap; line-height: 1.9em; }
+  .finalizadas ul { display: flex; flex-wrap: wrap; gap: .3rem .9rem; margin: 0; padding: 0; list-style: none; min-width: 0; }
+  .finalizadas li { white-space: nowrap; line-height: 1.9em; }
+  .finalizadas li b { font: 700 1em ui-monospace, "Cascadia Mono", Consolas, monospace; color: var(--texto); letter-spacing: .04em; }
+  .finalizadas time { font-variant-numeric: tabular-nums; }
   /* entrada */
-  .entrada { max-width: 26rem; margin: 8vh auto 0; padding: 1.4rem; border-radius: 1rem; background: var(--card); border: 1px solid var(--borda); }
+  .entrada { width: min(26rem, calc(100% - 2rem)); margin: 8vh auto 0; padding: 1.4rem; border-radius: 1rem; background: var(--card); border: 1px solid var(--borda); }
   .entrada h1 { margin: 0 0 .3rem; font-size: 1.3rem; }
   .entrada p { margin: .3rem 0 .8rem; color: var(--apagado); font-size: .9rem; }
   .entrada label { display: block; margin: .7rem 0 0; font-size: .85rem; font-weight: 600; }
   .entrada input[type=text], .entrada input[type=password] { width: 100%; margin-top: .3rem; padding: .6rem .7rem; border: 1px solid var(--borda); border-radius: .55rem; background: var(--card); color: var(--texto); }
   .entrada .check { display: flex; align-items: center; gap: .5rem; font-weight: 500; }
   .entrada button { width: 100%; margin-top: 1rem; padding: .7rem; border: 0; border-radius: .6rem; background: var(--cor); color: #fff; font-weight: 700; cursor: pointer; }
-  :root[data-tema="escuro"] .entrada button { color: #0a0f1c; }
+  :root[data-tema="escuro"] .entrada button { color: #0b1120; }
   .msg { margin-top: .7rem; font-size: .88rem; color: var(--ruim); min-height: 1.2em; }
-  @media (max-width: 640px) { header { flex-wrap: wrap; } .relogio { font-size: 1.2rem; } main { padding: .8rem; } }
+  /* celular: as colunas uma embaixo da outra e a pagina rola (a TV nunca chega aqui) */
+  @media (max-width: 700px) {
+    body { height: auto; min-height: 100vh; overflow: visible; }
+    header { padding: .4rem .7rem; } .relogio { font-size: 1.15rem; }
+    main { flex: none; padding: .6rem; }
+    .quadro { display: flex; flex-direction: column; overflow: visible; }
+    .lista { overflow: visible; }
+    .finalizadas { max-height: none; flex-direction: column; }
+  }
 </style>
 </head>
 <body>
 <header>
   <div><h1>Pátio</h1><div class="oficina" id="oficina">Go Tech</div></div>
+  <span class="total" id="total" hidden><b id="n-total">0</b> no pátio</span>
   <span class="esp"></span>
   <span class="sinal" id="sinal" role="status" aria-live="polite" hidden></span>
   <span class="relogio" id="relogio" aria-label="Hora"></span>
-  <button class="icone" type="button" id="tema" title="Trocar entre claro, escuro e automático">Tema: auto</button>
+  <span class="zoom" id="zoom" hidden>
+    <button class="icone" type="button" id="menos" title="Letras menores (tecla -)" aria-label="Letras menores">A-</button>
+    <output id="zoom-valor" aria-live="polite">100%</output>
+    <button class="icone" type="button" id="mais" title="Letras maiores (tecla +)" aria-label="Letras maiores">A+</button>
+  </span>
+  <button class="icone" type="button" id="vazias" hidden title="Mostrar ou esconder as colunas sem carro">Esconder vazias</button>
+  <button class="icone" type="button" id="tema" title="Trocar entre escuro, claro e automático">Tema: escuro</button>
   <button class="icone" type="button" id="tela-cheia" title="Tela cheia (para a TV)">Tela cheia</button>
   <button class="icone" type="button" id="sair" hidden>Sair</button>
 </header>
@@ -118,8 +180,8 @@
 
 <main id="tela-patio" hidden>
   <div class="avisos" id="avisos"></div>
-  <section id="andamento"><h2>No pátio <span class="n" id="n-andamento">0</span></h2><div class="grade" id="grade-andamento"></div></section>
-  <section id="entrega"><h2>Pronto para entrega <span class="n" id="n-entrega">0</span></h2><div class="grade" id="grade-entrega"></div></section>
+  <div class="quadro" id="quadro" role="list" aria-label="Carros no pátio por etapa"></div>
+  <footer class="finalizadas" id="finalizadas" hidden aria-label="Entregues ou finalizadas hoje"></footer>
 </main>
 
 <script>
@@ -128,8 +190,6 @@
   const CHAVE = 'sb_publishable_01273TSKNqVnSbDioqcJZA_yxmcH8lR';
   const DOMINIO_EQUIPE = 'equipe.gotech.invalid';
   const RAPIDO_MS = 5000, LENTO_MS = 30000, COMPLETO_MS = 5 * 60000;
-  const ETAPA_ENTREGA = 'Pronto para entrega';
-  const NOMES = { aberta: 'Aberta', em_execucao: 'Em execução', finalizada: 'Finalizada', faturada: 'Faturada' };
   const $ = s => document.querySelector(s);
   const esc = t => String(t ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const CHAVE_SESSAO = 'gotech-patio-sessao';
@@ -142,33 +202,123 @@
   const lerSessao = () => {
     try { return JSON.parse(localStorage.getItem(CHAVE_SESSAO) || sessionStorage.getItem(CHAVE_SESSAO) || 'null'); } catch (e) { return null; }
   };
+  const pref = (chave, padrao) => { try { return localStorage.getItem(chave) ?? padrao; } catch (e) { return padrao; } };
+  const gravarPref = (chave, valor) => { try { localStorage.setItem(chave, valor); } catch (e) { /* sem armazenamento */ } };
   let sessao = lerSessao();   // {access_token, refresh_token, expira, lembrar}
-  const st = { seq: 0, dados: null, ultimoOk: 0, ultimoCompleto: 0, desvio: 0, vistos: new Map(), timer: 0, rodando: false, erro: '' };
+  const st = { seq: 0, dados: null, quadro: null, ultimoOk: 0, ultimoCompleto: 0, desvio: 0, vistos: new Map(), timer: 0, rodando: false, erro: '' };
 
-  // ---------- tema e tela cheia ----------
-  const TEMAS = ['auto', 'claro', 'escuro'];
-  function aplicarTema(t) {
-    if (t === 'auto') delete document.documentElement.dataset.tema; else document.documentElement.dataset.tema = t;
-    $('#tema').textContent = `Tema: ${t}`;
+  // ==== quadro (puro: sem DOM; tests/test_patio_web_quadro.py roda este trecho no Node) ====
+  // as etapas e as cores do Patio do programa (banco.ETAPAS_OS e CORES_ETAPA de assets/painel/gestao.js), nessa ordem
+  const ETAPAS = ['Recepção', 'Diagnóstico', 'Em orçamento', 'Em aprovação', 'Aprovado', 'Aguardando peças', 'Em execução', 'Funilaria', 'Pintura',
+    'Polimento', 'Lavagem', 'Pronto para entrega'];
+  const CORES = { 'Recepção': 'neutro', 'Diagnóstico': 'azul', 'Em orçamento': 'roxo', 'Em aprovação': 'ambar', 'Aprovado': 'ciano',
+    'Aguardando peças': 'vermelho', 'Em execução': 'laranja', 'Funilaria': 'anil', 'Pintura': 'rosa', 'Polimento': 'ardosia', 'Lavagem': 'azul',
+    'Pronto para entrega': 'verde' };
+  // sem a configuracao do programa no espelho (funcao antiga ou nenhum PC publicou ainda): as colunas que a oficina usa
+  // (feedback do Ronan) e mais as que tiverem carro
+  const ETAPAS_PADRAO = ['Diagnóstico', 'Em orçamento', 'Aguardando peças', 'Em execução', 'Funilaria', 'Pintura', 'Polimento', 'Lavagem', 'Pronto para entrega'];
+  const NO_PATIO = ['aberta', 'em_execucao'];
+  const FINALIZADA = ['finalizada', 'faturada'];
+  function dataLocal(iso) {   // '2026-11-04T10:00' (hora local do PC, sem fuso), '2026-11-04' ou ISO com fuso/Z
+    if (!iso) return null;
+    let s = String(iso).trim().replace(' ', 'T');
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) s += 'T00:00:00';
+    else if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(s)) s += ':00';
+    const d = new Date(s);
+    return Number.isNaN(d.getTime()) ? null : d;
   }
-  let tema = (() => { try { return localStorage.getItem('gotech-patio-tema') || 'auto'; } catch (e) { return 'auto'; } })();
-  if (!TEMAS.includes(tema)) tema = 'auto';
+  const entradaDe = o => o.data_entrada || o.aberta_em || '';
+  function montarQuadro(d) {
+    const todas = Array.isArray(d && d.os) ? d.os.filter(o => o && typeof o === 'object') : [];
+    const andamento = todas.filter(o => NO_PATIO.includes(o.status));
+    // funcao nova: 'finalizadas_hoje' a parte; funcao antiga: as finalizadas vinham misturadas em 'os' -> saem do quadro aqui
+    const finalizadas = (Array.isArray(d && d.finalizadas_hoje) ? d.finalizadas_hoje.filter(o => o && typeof o === 'object')
+      : todas.filter(o => FINALIZADA.includes(o.status))).slice()
+      .sort((a, b) => String(b.finalizada_em || '').localeCompare(String(a.finalizada_em || '')));   // a mais nova primeiro
+    const config = Array.isArray(d && d.etapas) ? d.etapas.filter(e => ETAPAS.includes(e)) : [];
+    const ativas = config.length ? config : ETAPAS_PADRAO;
+    const porColuna = new Map(ETAPAS.map(e => [e, []]));
+    for (const o of andamento) {
+      const coluna = ETAPAS.includes(o.etapa) ? o.etapa : ETAPAS[0];   // sem etapa (ou uma que nao existe mais): Recepcao
+      porColuna.get(coluna).push({ ...o, coluna });
+    }
+    for (const lista of porColuna.values()) {   // quem entrou primeiro (espera ha mais tempo) no topo
+      lista.sort((a, b) => (entradaDe(a) ? 0 : 1) - (entradaDe(b) ? 0 : 1) || String(entradaDe(a)).localeCompare(String(entradaDe(b)))
+        || (Number(a.numero) || 0) - (Number(b.numero) || 0));
+    }
+    // a ordem e a do programa; desmarcada no programa some, a nao ser que tenha carro (como o Patio do programa)
+    const colunas = ETAPAS.filter(e => ativas.includes(e) || porColuna.get(e).length)
+      .map(e => ({ etapa: e, cor: CORES[e] || 'neutro', quantidade: porColuna.get(e).length, os: porColuna.get(e) }));
+    return { colunas, finalizadas, total: andamento.length, configurada: config.length > 0 };
+  }
+  // tempos como no Patio do programa (gestao.js: tempoPatio, duracaoPatio, textoBancada)
+  const tempoPatio = m => m == null ? '' : m < 1 ? 'agora' : m < 60 ? `há ${m} min` : m < 1440 ? `há ${Math.floor(m / 60)} h`
+    : `há ${Math.floor(m / 1440)} ${Math.floor(m / 1440) === 1 ? 'dia' : 'dias'}`;
+  const duracaoPatio = m => m == null ? '' : m < 1 ? 'menos de 1 min' : m < 60 ? `${m} min`
+    : m < 1440 ? `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}` : `${Math.floor(m / 1440)} d ${Math.floor((m % 1440) / 60)} h`;
+  const minutosDesde = (data, agoraMs) => data ? Math.max(0, Math.floor((agoraMs - data.getTime()) / 60000)) : null;
+  function textosDoCarro(o, agoraMs) {
+    const entrada = dataLocal(entradaDe(o));
+    const min = minutosDesde(entrada, agoraMs);
+    const r = o.relogio && typeof o.relogio === 'object' ? o.relogio : null;
+    let bancada = '', estado = '', dica = '';
+    if (r && r.inicio_em && dataLocal(r.inicio_em)) {
+      const m = minutosDesde(dataLocal(r.inicio_em), agoraMs);
+      bancada = m < 1 ? 'na bancada agora' : `na bancada há ${duracaoPatio(m)}`;
+      estado = 'correndo';
+      const total = m + Math.floor((Number(r.anteriores_s) || 0) / 60);
+      dica = `Passada para ${r.mecanico || 'o mecânico'} às ${dataLocal(r.inicio_em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
+        + (total > m ? ` · total dele nesta OS: ${duracaoPatio(total)}` : '');
+    } else if (r && r.terminou_em && dataLocal(r.terminou_em)) {
+      bancada = `terminou há ${duracaoPatio(minutosDesde(dataLocal(r.terminou_em), agoraMs))} · ${duracaoPatio(Math.floor((Number(r.mecanico_s) || 0) / 60))} de bancada`;
+      estado = 'terminou';
+      dica = 'O mecânico terminou: falta o chefe de oficina finalizar';
+    }
+    return { aberta: min == null ? '' : `aberta ${tempoPatio(min)}`, muito: min != null && min >= 3 * 1440, bancada, estado, dica };
+  }
+  // ==== fim do quadro ====
+
+  // ---------- tema, tela cheia, letras ----------
+  const TEMAS = ['escuro', 'claro', 'auto'];
+  function aplicarTema(t) { document.documentElement.dataset.tema = t; $('#tema').textContent = `Tema: ${t}`; }
+  let tema = pref('gotech-patio-tema', 'escuro');   // a TV: escuro, como o modo TV do programa
+  if (!TEMAS.includes(tema)) tema = 'escuro';
   aplicarTema(tema);
-  $('#tema').addEventListener('click', () => {
-    tema = TEMAS[(TEMAS.indexOf(tema) + 1) % TEMAS.length];
-    try { localStorage.setItem('gotech-patio-tema', tema); } catch (e) { /* sem armazenamento */ }
-    aplicarTema(tema);
-  });
+  $('#tema').addEventListener('click', () => { tema = TEMAS[(TEMAS.indexOf(tema) + 1) % TEMAS.length]; gravarPref('gotech-patio-tema', tema); aplicarTema(tema); });
   $('#tela-cheia').addEventListener('click', () => {
     if (document.fullscreenElement) document.exitFullscreen?.(); else document.documentElement.requestFullscreen?.().catch(() => {});
   });
   let trava = null;  // a TV nao apaga a tela (onde o navegador deixa)
   async function manterAcesa() { try { if ('wakeLock' in navigator && !document.hidden) trava = await navigator.wakeLock.request('screen'); } catch (e) { trava = null; } }
+  // tamanho das letras (como o A-/A+ do modo TV do programa): 50% a 150%, de 10 em 10, lembrado neste navegador
+  const ESCALA_MIN = 50, ESCALA_MAX = 150, ESCALA_PASSO = 10;
+  let escala = parseInt(pref('gotech-patio-escala', '100'), 10);
+  if (!(escala >= ESCALA_MIN && escala <= ESCALA_MAX)) escala = 100;
+  escala = Math.round(escala / ESCALA_PASSO) * ESCALA_PASSO;
+  function aplicarEscala(valor, guardarValor) {
+    escala = Math.min(ESCALA_MAX, Math.max(ESCALA_MIN, valor));
+    document.body.style.setProperty('--e', String(escala / 100 * 0.8));   // 100% = o padrao do modo TV do programa
+    $('#zoom-valor').textContent = `${escala}%`;
+    $('#menos').disabled = escala <= ESCALA_MIN; $('#mais').disabled = escala >= ESCALA_MAX;
+    if (guardarValor) gravarPref('gotech-patio-escala', String(escala));
+  }
+  aplicarEscala(escala, false);
+  $('#menos').addEventListener('click', () => aplicarEscala(escala - ESCALA_PASSO, true));
+  $('#mais').addEventListener('click', () => aplicarEscala(escala + ESCALA_PASSO, true));
+  document.addEventListener('keydown', ev => {
+    if (!sessao || ev.ctrlKey || ev.metaKey || ev.altKey || /^(INPUT|TEXTAREA|SELECT)$/.test(ev.target.tagName || '')) return;
+    if (ev.key === '-' || ev.key === '_') aplicarEscala(escala - ESCALA_PASSO, true);
+    else if (ev.key === '+' || ev.key === '=') aplicarEscala(escala + ESCALA_PASSO, true);
+  });
+  let vazias = pref('gotech-patio-vazias', 'mostrar') === 'esconder' ? 'esconder' : 'mostrar';
+  function pintarVazias() { $('#vazias').textContent = vazias === 'mostrar' ? 'Esconder vazias' : 'Mostrar vazias'; $('#vazias').setAttribute('aria-pressed', String(vazias === 'esconder')); }
+  pintarVazias();
+  $('#vazias').addEventListener('click', () => { vazias = vazias === 'mostrar' ? 'esconder' : 'mostrar'; gravarPref('gotech-patio-vazias', vazias); pintarVazias(); desenhar(); });
 
-  // ---------- relogio ----------
-  const agora = () => Date.now() + st.desvio;   // hora do servidor (a TV pode estar com o relogio errado)
-  function relogio() { $('#relogio').textContent = new Date(agora()).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }); }
-  setInterval(relogio, 1000); relogio();
+  // ---------- relogio (hora do servidor: a TV pode estar com o relogio errado) ----------
+  const agora = () => Date.now() + st.desvio;
+  const hora = d => d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  function relogio() { $('#relogio').textContent = hora(new Date(agora())); }
 
   // ---------- Supabase (REST puro, sem biblioteca) ----------
   const configurada = () => /^https:\/\//.test(SUPABASE) && CHAVE && !CHAVE.startsWith('__');
@@ -225,12 +375,13 @@
 
   // ---------- entrar e sair ----------
   function mostrar(logado) {
-    $('#tela-entrada').hidden = logado; $('#tela-patio').hidden = !logado; $('#sair').hidden = !logado; $('#sinal').hidden = !logado;
+    $('#tela-entrada').hidden = logado; $('#tela-patio').hidden = !logado;
+    for (const id of ['#sair', '#sinal', '#zoom', '#vazias', '#total']) $(id).hidden = !logado;
     if (!logado) setTimeout(() => $('#login').focus(), 0);
   }
   function sair() {
     sessao = null; guardar(null);
-    clearTimeout(st.timer); st.seq = 0; st.dados = null; st.vistos.clear(); st.desenhou = false; st.ultimoOk = 0; st.erro = '';
+    clearTimeout(st.timer); st.seq = 0; st.dados = null; st.quadro = null; st.vistos.clear(); st.desenhou = false; st.ultimoOk = 0; st.erro = '';
     mostrar(false);
   }
   $('#sair').addEventListener('click', () => {
@@ -257,47 +408,57 @@
   });
 
   // ---------- desenhar ----------
-  function dataLocal(iso) {
-    if (!iso) return null;
-    const d = new Date(String(iso).length <= 16 ? String(iso) + ':00' : String(iso));
-    return Number.isNaN(d.getTime()) ? null : d;
-  }
-  function tempo(iso) {
-    const d = dataLocal(iso);
-    if (!d) return { texto: '', min: 0 };
-    const min = Math.max(0, Math.floor((agora() - d.getTime()) / 60000));
-    if (min < 1) return { texto: 'agora', min };
-    if (min < 60) return { texto: `${min} min`, min };
-    const h = Math.floor(min / 60);
-    if (h < 24) return { texto: `${h} h ${String(min % 60).padStart(2, '0')}`, min };
-    const dias = Math.floor(h / 24);
-    return { texto: dias === 1 ? '1 dia' : `${dias} dias`, min };
-  }
-  function cartao(o, pronto) {
-    const t = tempo(o.data_entrada || o.aberta_em);
-    const etapa = o.etapa && o.etapa !== ETAPA_ENTREGA ? `<span class="chip etapa">${esc(o.etapa)}</span>` : '';
-    const situacao = pronto ? `<span class="chip pronto">${o.status === 'aberta' || o.status === 'em_execucao' ? 'Pronto para entrega' : `${esc(NOMES[o.status] || o.status)} hoje`}</span>`
-      : `<span class="chip ${o.status === 'aberta' ? 'aberta' : ''}">${esc(NOMES[o.status] || o.status)}</span>`;
+  const ICONE_TEMPO = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
+  const ICONE_MECANICO = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/></svg>';
+  function cartao(o, variosPcs) {
+    const t = textosDoCarro(o, agora());
+    const entrada = dataLocal(entradaDe(o));
     const novo = st.desenhou && st.vistos.get(o.ref) !== o.alterado_em;  // OS nova ou mudou desde a ultima tela
-    return `<article class="carro${pronto ? ' pronto' : ''}${novo ? ' novo' : ''}" data-ref="${esc(o.ref)}" data-status="${esc(o.status)}">
-      <div class="linha1"><span class="placa">${esc(o.placa || '—')}</span><span class="tempo${t.min >= 3 * 24 * 60 ? ' muito' : ''}" title="Desde a entrada">${esc(t.texto)}</span></div>
+    const mecanico = o.mecanico || (o.relogio && o.relogio.mecanico) || '';
+    return `<article class="carro${novo ? ' novo' : ''}" role="listitem" data-ref="${esc(o.ref)}" data-status="${esc(o.status)}">
+      <div class="carro-topo"><span class="placa">${esc(o.placa || '—')}</span><span class="num">OS ${esc(o.numero ?? '')}${variosPcs && o.pc ? ` · ${esc(o.pc)}` : ''}</span></div>
       <div class="modelo">${esc(o.modelo || 'Modelo não informado')}</div>
-      <div class="cliente">${esc(o.cliente || '')}</div>
-      <div class="mecanico${o.mecanico ? '' : ' sem'}">${o.mecanico ? `Mecânico: <strong>${esc(o.mecanico)}</strong>` : 'Sem mecânico'}</div>
-      <div class="rodape">${situacao}${etapa}<span class="os">OS ${esc(o.numero ?? '')}${o.pc ? ` · ${esc(o.pc)}` : ''}</span></div></article>`;
+      ${o.cliente ? `<div class="cliente">${esc(o.cliente)}</div>` : ''}
+      ${o.etapa && o.etapa !== o.coluna ? `<span class="etapa-chip">${esc(o.etapa)}</span>` : ''}
+      <div class="bancada" data-estado="${esc(t.estado)}" title="${esc(t.dica)}"${t.bancada ? '' : ' hidden'}>${ICONE_MECANICO}<span class="bancada-texto">${esc(t.bancada)}</span></div>
+      <div class="rodape"><span class="tempo${t.muito ? ' muito' : ''}" title="${entrada ? `Entrada em ${esc(entrada.toLocaleDateString('pt-BR'))} às ${esc(hora(entrada))}` : ''}">${ICONE_TEMPO}<span class="tempo-texto">${esc(t.aberta)}</span></span>
+        <span class="mecanico${mecanico ? '' : ' sem'}" title="Mecânico">${ICONE_MECANICO}${mecanico ? esc(mecanico) : 'Sem mecânico'}</span></div></article>`;
   }
   function desenhar() {
     const d = st.dados;
     if (!d) return;
     $('#oficina').textContent = d.oficina || 'Go Tech';
-    const todas = Array.isArray(d.os) ? d.os : [];
-    const pronto = o => o.etapa === ETAPA_ENTREGA || o.status === 'finalizada' || o.status === 'faturada';
-    const andamento = todas.filter(o => !pronto(o)), entrega = todas.filter(pronto);
-    $('#n-andamento').textContent = andamento.length; $('#n-entrega').textContent = entrega.length;
-    $('#grade-andamento').innerHTML = andamento.map(o => cartao(o, false)).join('') || '<div class="vazio">Nenhum carro em andamento agora.</div>';
-    $('#grade-entrega').innerHTML = entrega.map(o => cartao(o, true)).join('') || '<div class="vazio">Nenhum carro pronto para entrega.</div>';
-    st.vistos = new Map(todas.map(o => [o.ref, o.alterado_em])); st.desenhou = st.ultimoOk > 0;
+    const q = montarQuadro(d);
+    st.quadro = q;
+    st.porRef = new Map(q.colunas.flatMap(c => c.os).map(o => [o.ref, o]));
+    $('#n-total').textContent = q.total;
+    const variosPcs = new Set(q.colunas.flatMap(c => c.os).map(o => o.pc).filter(Boolean)).size > 1;
+    const colunas = q.colunas.filter(c => vazias === 'mostrar' || c.quantidade);
+    $('#quadro').innerHTML = colunas.map(c => `<section class="coluna" role="listitem" data-etapa="${esc(c.etapa)}" data-cor="${esc(c.cor)}" aria-label="${esc(c.etapa)}: ${c.quantidade} OS">
+      <div class="coluna-topo"><h2>${esc(c.etapa)}</h2><span class="contador" title="${c.quantidade} OS">${c.quantidade}</span></div>
+      <div class="lista" role="list">${c.os.map(o => cartao(o, variosPcs)).join('') || '<p class="coluna-vazia">Nenhuma OS</p>'}</div></section>`).join('')
+      || '<div class="vazio">Nenhum carro no pátio agora.</div>';
+    const f = $('#finalizadas');
+    f.hidden = !q.finalizadas.length;
+    f.innerHTML = q.finalizadas.length ? `<strong>Entregues/finalizadas hoje <span id="n-finalizadas">${q.finalizadas.length}</span></strong><ul>${q.finalizadas.map(o => {
+      const h = String(o.finalizada_em || '').slice(11, 16);
+      return `<li data-ref="${esc(o.ref)}"><b>${esc(o.placa || '—')}</b> ${esc(o.modelo || '')}${h ? ` <time>${esc(h)}</time>` : ''}</li>`;
+    }).join('')}</ul>` : '';
+    st.vistos = new Map(q.colunas.flatMap(c => c.os).map(o => [o.ref, o.alterado_em])); st.desenhou = st.ultimoOk > 0;
     avisos();
+  }
+  // os tempos andam sozinhos a cada segundo (so o texto muda: sem redesenhar o quadro nem piscar)
+  function tempos() {
+    if (!st.porRef) return;
+    const ms = agora();
+    for (const el of document.querySelectorAll('#quadro .carro')) {
+      const o = st.porRef.get(el.dataset.ref);
+      if (!o) continue;
+      const t = textosDoCarro(o, ms);
+      const tt = el.querySelector('.tempo-texto'), bt = el.querySelector('.bancada-texto');
+      if (tt && tt.textContent !== t.aberta) { tt.textContent = t.aberta; tt.parentElement.classList.toggle('muito', t.muito); }
+      if (bt && bt.textContent !== t.bancada) { bt.textContent = t.bancada; bt.parentElement.hidden = !t.bancada; }
+    }
   }
   function avisos() {
     const lista = [];
@@ -307,7 +468,8 @@
       const min = v ? Math.floor((agora() - v.getTime()) / 60000) : null;
       if (min !== null && min >= 15) lista.push(`<div class="aviso">${esc(m.pc)} sem sinal há ${min >= 120 ? `${Math.floor(min / 60)} h` : `${min} min`}: as OS dele podem estar desatualizadas (programa fechado ou sem internet).</div>`);
     }
-    $('#avisos').innerHTML = lista.join('');
+    const html = lista.join('');
+    if ($('#avisos').innerHTML !== html) $('#avisos').innerHTML = html;
   }
   function sinal() {
     const el = $('#sinal');
@@ -316,7 +478,8 @@
     el.dataset.estado = s > 120 ? 'parado' : s > 30 ? 'atrasado' : '';
     el.textContent = s < 10 ? 'ao vivo' : s < 120 ? `há ${s} s` : `parado há ${Math.floor(s / 60)} min`;
   }
-  setInterval(() => { if (sessao) { sinal(); if (st.dados) { desenhar(); } } }, 15000);  // o "tempo" de cada carro anda sozinho
+  setInterval(() => { relogio(); if (sessao && st.dados) tempos(); }, 1000); relogio();
+  setInterval(() => { if (sessao) { sinal(); avisos(); } }, 15000);
 
   // ---------- rodada ----------
   async function rodada() {
@@ -326,10 +489,12 @@
       const completo = !st.dados || Date.now() - st.ultimoCompleto > COMPLETO_MS;  // a cada 5 min tudo (o "hoje" vira o dia)
       const d = await painel(completo ? 0 : st.seq);
       if (d && d.agora) { const s = Date.parse(d.agora); if (!Number.isNaN(s)) st.desvio = s - Date.now(); }
-      if (d && d.mudou !== false) { st.dados = d; st.ultimoCompleto = Date.now(); }
+      const mudou = d && d.mudou !== false;
+      if (mudou) { st.dados = d; st.ultimoCompleto = Date.now(); }
       st.seq = Number((d && d.seq) || 0);
+      const vinhaComErro = !!st.erro;
       st.ultimoOk = Date.now(); st.erro = ''; st.erroStatus = 0;
-      desenhar();
+      if (mudou || !st.quadro) desenhar(); else if (vinhaComErro) avisos();
     } catch (e) {
       if (e.sair) { st.erro = e.message; $('#entrada-msg').textContent = e.message; return; }
       st.erro = e.message; st.erroStatus = e.status || 0;
