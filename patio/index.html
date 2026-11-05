@@ -117,6 +117,10 @@
   .tempo.muito { color: var(--ruim); font-weight: 650; }
   .mecanico { color: var(--texto); font-weight: 650; overflow-wrap: anywhere; }
   .mecanico.sem { color: var(--alerta); }
+  /* quanta informacao cada carro mostra (TV pequena / TV box): resumido tira cliente, etapa, relogio do mecanico e mecanico; so a placa deixa placa e numero da OS */
+  body[data-detalhe="resumido"] .cliente, body[data-detalhe="resumido"] .etapa-chip, body[data-detalhe="resumido"] .bancada, body[data-detalhe="resumido"] .mecanico,
+  body[data-detalhe="placa"] .cliente, body[data-detalhe="placa"] .etapa-chip, body[data-detalhe="placa"] .bancada, body[data-detalhe="placa"] .rodape,
+  body[data-detalhe="placa"] .modelo, body[data-detalhe="placa"] .finalizadas { display: none; }
   svg { width: 1.15em; height: 1.15em; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   .vazio { padding: 1rem; border: 1px dashed var(--borda); border-radius: .8rem; color: var(--apagado); text-align: center; }
   /* entregues/finalizadas hoje: fora do quadro, uma faixa discreta no rodape (no maximo 2 linhas; as mais novas primeiro) */
@@ -160,6 +164,7 @@
     <output id="zoom-valor" aria-live="polite">100%</output>
     <button class="icone" type="button" id="mais" title="Letras maiores (tecla +)" aria-label="Letras maiores">A+</button>
   </span>
+  <button class="icone" type="button" id="detalhe" hidden title="Mostrar menos informações em cada carro (para TV pequena)">Detalhes: completo</button>
   <button class="icone" type="button" id="vazias" hidden title="Mostrar ou esconder as colunas sem carro">Esconder vazias</button>
   <button class="icone" type="button" id="tema" title="Trocar entre escuro, claro e automático">Tema: escuro</button>
   <button class="icone" type="button" id="tela-cheia" title="Tela cheia (para a TV)">Tela cheia</button>
@@ -290,8 +295,8 @@
   });
   let trava = null;  // a TV nao apaga a tela (onde o navegador deixa)
   async function manterAcesa() { try { if ('wakeLock' in navigator && !document.hidden) trava = await navigator.wakeLock.request('screen'); } catch (e) { trava = null; } }
-  // tamanho das letras (como o A-/A+ do modo TV do programa): 50% a 150%, de 10 em 10, lembrado neste navegador
-  const ESCALA_MIN = 50, ESCALA_MAX = 150, ESCALA_PASSO = 10;
+  // tamanho das letras (como o A-/A+ do modo TV do programa): 30% a 150%, de 10 em 10, lembrado neste navegador
+  const ESCALA_MIN = 30, ESCALA_MAX = 150, ESCALA_PASSO = 10;
   let escala = parseInt(pref('gotech-patio-escala', '100'), 10);
   if (!(escala >= ESCALA_MIN && escala <= ESCALA_MAX)) escala = 100;
   escala = Math.round(escala / ESCALA_PASSO) * ESCALA_PASSO;
@@ -310,6 +315,13 @@
     if (ev.key === '-' || ev.key === '_') aplicarEscala(escala - ESCALA_PASSO, true);
     else if (ev.key === '+' || ev.key === '=') aplicarEscala(escala + ESCALA_PASSO, true);
   });
+  // detalhes de cada carro: completo > resumido (placa, modelo, tempo) > so a placa; lembrado neste navegador
+  const DETALHES = ['completo', 'resumido', 'placa'], ROTULO_DETALHE = { completo: 'completo', resumido: 'resumido', placa: 'só placa' };
+  let detalhe = pref('gotech-patio-detalhe', 'completo');
+  if (!DETALHES.includes(detalhe)) detalhe = 'completo';
+  function aplicarDetalhe() { document.body.dataset.detalhe = detalhe; $('#detalhe').textContent = `Detalhes: ${ROTULO_DETALHE[detalhe]}`; }
+  aplicarDetalhe();
+  $('#detalhe').addEventListener('click', () => { detalhe = DETALHES[(DETALHES.indexOf(detalhe) + 1) % DETALHES.length]; gravarPref('gotech-patio-detalhe', detalhe); aplicarDetalhe(); });
   let vazias = pref('gotech-patio-vazias', 'mostrar') === 'esconder' ? 'esconder' : 'mostrar';
   function pintarVazias() { $('#vazias').textContent = vazias === 'mostrar' ? 'Esconder vazias' : 'Mostrar vazias'; $('#vazias').setAttribute('aria-pressed', String(vazias === 'esconder')); }
   pintarVazias();
@@ -376,7 +388,7 @@
   // ---------- entrar e sair ----------
   function mostrar(logado) {
     $('#tela-entrada').hidden = logado; $('#tela-patio').hidden = !logado;
-    for (const id of ['#sair', '#sinal', '#zoom', '#vazias', '#total']) $(id).hidden = !logado;
+    for (const id of ['#sair', '#sinal', '#zoom', '#detalhe', '#vazias', '#total']) $(id).hidden = !logado;
     if (!logado) setTimeout(() => $('#login').focus(), 0);
   }
   function sair() {
