@@ -121,6 +121,13 @@
   body[data-detalhe="resumido"] .cliente, body[data-detalhe="resumido"] .etapa-chip, body[data-detalhe="resumido"] .bancada, body[data-detalhe="resumido"] .mecanico,
   body[data-detalhe="placa"] .cliente, body[data-detalhe="placa"] .etapa-chip, body[data-detalhe="placa"] .bancada, body[data-detalhe="placa"] .rodape,
   body[data-detalhe="placa"] .modelo, body[data-detalhe="placa"] .finalizadas { display: none; }
+  /* filtros da TV: quais etapas aparecem e de qual mecanico (so de exibicao, lembrado neste navegador) */
+  .filtros { flex: 0 0 auto; margin: .5rem .7rem 0; display: flex; align-items: center; flex-wrap: wrap; gap: .4rem 1rem; padding: .4rem .7rem; border: 1px solid var(--borda); border-radius: .6rem; background: var(--card-2); font-size: .8rem; }
+  .filtros label { display: inline-flex; align-items: center; gap: .3rem; }
+  .filtros select { font: inherit; padding: .15rem .3rem; border-radius: .35rem; border: 1px solid var(--borda-forte); background: var(--card); color: var(--texto); }
+  .filtros .etapas { display: flex; flex-wrap: wrap; gap: .2rem .8rem; }
+  .filtros .limpar { margin-left: auto; border: 1px solid var(--borda-forte); background: transparent; color: var(--texto); border-radius: .4rem; padding: .15rem .6rem; cursor: pointer; }
+  #filtrar[aria-pressed="true"] { background: #ffffff38; }
   svg { width: 1.15em; height: 1.15em; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   .vazio { padding: 1rem; border: 1px dashed var(--borda); border-radius: .8rem; color: var(--apagado); text-align: center; }
   /* entregues/finalizadas hoje: fora do quadro, uma faixa discreta no rodape (no maximo 2 linhas; as mais novas primeiro) */
@@ -164,6 +171,7 @@
     <output id="zoom-valor" aria-live="polite">100%</output>
     <button class="icone" type="button" id="mais" title="Letras maiores (tecla +)" aria-label="Letras maiores">A+</button>
   </span>
+  <button class="icone" type="button" id="filtrar" hidden aria-expanded="false" aria-controls="filtros" title="Escolher as etapas e o mecânico que aparecem">Filtros</button>
   <button class="icone" type="button" id="detalhe" hidden title="Mostrar menos informações em cada carro (para TV pequena)">Detalhes: completo</button>
   <button class="icone" type="button" id="vazias" hidden title="Mostrar ou esconder as colunas sem carro">Esconder vazias</button>
   <button class="icone" type="button" id="tema" title="Trocar entre escuro, claro e automático">Tema: escuro</button>
@@ -183,6 +191,11 @@
   <div class="msg" id="entrada-msg" role="alert"></div>
 </form>
 
+<div class="filtros" id="filtros" hidden>
+    <label>Mecânico <select id="filtro-mecanico"><option value="">Todos</option></select></label>
+    <span class="etapas" id="filtro-etapas" role="group" aria-label="Etapas que aparecem"></span>
+    <button class="limpar" type="button" id="filtro-limpar">Mostrar tudo</button>
+  </div>
 <main id="tela-patio" hidden>
   <div class="avisos" id="avisos"></div>
   <div class="quadro" id="quadro" role="list" aria-label="Carros no pátio por etapa"></div>
@@ -210,7 +223,7 @@
   const pref = (chave, padrao) => { try { return localStorage.getItem(chave) ?? padrao; } catch (e) { return padrao; } };
   const gravarPref = (chave, valor) => { try { localStorage.setItem(chave, valor); } catch (e) { /* sem armazenamento */ } };
   let sessao = lerSessao();   // {access_token, refresh_token, expira, lembrar}
-  const st = { seq: 0, dados: null, quadro: null, ultimoOk: 0, ultimoCompleto: 0, desvio: 0, vistos: new Map(), timer: 0, rodando: false, erro: '' };
+  const st = { seq: 0, dados: null, quadro: null, nomes: {}, ultimoOk: 0, ultimoCompleto: 0, desvio: 0, vistos: new Map(), timer: 0, rodando: false, erro: '' };
 
   // ==== quadro (puro: sem DOM; tests/test_patio_web_quadro.py roda este trecho no Node) ====
   // as etapas e as cores do Patio do programa (banco.ETAPAS_OS e CORES_ETAPA de assets/painel/gestao.js), nessa ordem
@@ -251,9 +264,12 @@
       lista.sort((a, b) => (entradaDe(a) ? 0 : 1) - (entradaDe(b) ? 0 : 1) || String(entradaDe(a)).localeCompare(String(entradaDe(b)))
         || (Number(a.numero) || 0) - (Number(b.numero) || 0));
     }
+    // nomes que a oficina deu as etapas no programa (so o texto da tela; a funcao antiga do Supabase nao manda)
+    const nomes = {};
+    if (d && d.rotulos && typeof d.rotulos === 'object') for (const e of ETAPAS) if (typeof d.rotulos[e] === 'string' && d.rotulos[e].trim()) nomes[e] = d.rotulos[e].trim().slice(0, 40);
     // a ordem e a do programa; desmarcada no programa some, a nao ser que tenha carro (como o Patio do programa)
     const colunas = ETAPAS.filter(e => ativas.includes(e) || porColuna.get(e).length)
-      .map(e => ({ etapa: e, cor: CORES[e] || 'neutro', quantidade: porColuna.get(e).length, os: porColuna.get(e) }));
+      .map(e => ({ etapa: e, rotulo: nomes[e] || e, cor: CORES[e] || 'neutro', quantidade: porColuna.get(e).length, os: porColuna.get(e) }));
     return { colunas, finalizadas, total: andamento.length, configurada: config.length > 0 };
   }
   // tempos como no Patio do programa (gestao.js: tempoPatio, duracaoPatio, textoBancada)
@@ -322,6 +338,41 @@
   function aplicarDetalhe() { document.body.dataset.detalhe = detalhe; $('#detalhe').textContent = `Detalhes: ${ROTULO_DETALHE[detalhe]}`; }
   aplicarDetalhe();
   $('#detalhe').addEventListener('click', () => { detalhe = DETALHES[(DETALHES.indexOf(detalhe) + 1) % DETALHES.length]; gravarPref('gotech-patio-detalhe', detalhe); aplicarDetalhe(); });
+  // filtros (so de exibicao): etapas escondidas e mecanico; guardados neste navegador
+  const SEM_MECANICO = '__sem__';
+  let etapasOcultas = [];
+  try { const v = JSON.parse(pref('gotech-patio-etapas-ocultas', '[]')); if (Array.isArray(v)) etapasOcultas = v.filter(x => typeof x === 'string'); } catch (e) { etapasOcultas = []; }
+  let filtroMecanico = pref('gotech-patio-mecanico', '');
+  const mecanicosDe = o => String(o.mecanico || (o.relogio && o.relogio.mecanico) || '').split(/\s*,\s*/).filter(Boolean);
+  const passaMecanico = o => !filtroMecanico || (filtroMecanico === SEM_MECANICO ? !mecanicosDe(o).length : mecanicosDe(o).includes(filtroMecanico));
+  const filtrando = () => etapasOcultas.length > 0 || !!filtroMecanico;
+  function pintarFiltros(q) {
+    $('#filtrar').setAttribute('aria-pressed', String(filtrando()));
+    $('#filtrar').textContent = filtrando() ? 'Filtros (ligados)' : 'Filtros';
+    if (!q) return;
+    const nomes = [...new Set(q.colunas.flatMap(c => c.os).flatMap(mecanicosDe))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+    const temSem = q.colunas.some(c => c.os.some(o => !mecanicosDe(o).length));
+    if (filtroMecanico && filtroMecanico !== SEM_MECANICO && !nomes.includes(filtroMecanico)) nomes.push(filtroMecanico);  // mantem a escolha mesmo sem carro dele agora
+    const opcoes = ['<option value="">Todos</option>', ...nomes.map(n => `<option value="${esc(n)}">${esc(n)}</option>`), temSem || filtroMecanico === SEM_MECANICO ? `<option value="${SEM_MECANICO}">Sem mecânico</option>` : ''].join('');
+    const sel = $('#filtro-mecanico');
+    if (sel.dataset.opcoes !== opcoes) { sel.innerHTML = opcoes; sel.dataset.opcoes = opcoes; }
+    sel.value = filtroMecanico;
+    const caixas = q.colunas.map(c => `<label><input type="checkbox" data-etapa="${esc(c.etapa)}"${etapasOcultas.includes(c.etapa) ? '' : ' checked'}> ${esc(c.rotulo || c.etapa)}</label>`).join('');
+    const box = $('#filtro-etapas');
+    if (box.dataset.caixas !== caixas) { box.innerHTML = caixas; box.dataset.caixas = caixas; }
+  }
+  $('#filtrar').addEventListener('click', () => { const f = $('#filtros'); f.hidden = !f.hidden; $('#filtrar').setAttribute('aria-expanded', String(!f.hidden)); });
+  $('#filtro-mecanico').addEventListener('change', ev => { filtroMecanico = ev.target.value; gravarPref('gotech-patio-mecanico', filtroMecanico); desenhar(); });
+  $('#filtro-etapas').addEventListener('change', ev => {
+    const etapa = ev.target.dataset && ev.target.dataset.etapa;
+    if (!etapa) return;
+    etapasOcultas = etapasOcultas.filter(e => e !== etapa);
+    if (!ev.target.checked) etapasOcultas.push(etapa);
+    gravarPref('gotech-patio-etapas-ocultas', JSON.stringify(etapasOcultas)); desenhar();
+  });
+  $('#filtro-limpar').addEventListener('click', () => {
+    etapasOcultas = []; filtroMecanico = ''; gravarPref('gotech-patio-etapas-ocultas', '[]'); gravarPref('gotech-patio-mecanico', ''); desenhar();
+  });
   let vazias = pref('gotech-patio-vazias', 'mostrar') === 'esconder' ? 'esconder' : 'mostrar';
   function pintarVazias() { $('#vazias').textContent = vazias === 'mostrar' ? 'Esconder vazias' : 'Mostrar vazias'; $('#vazias').setAttribute('aria-pressed', String(vazias === 'esconder')); }
   pintarVazias();
@@ -388,7 +439,7 @@
   // ---------- entrar e sair ----------
   function mostrar(logado) {
     $('#tela-entrada').hidden = logado; $('#tela-patio').hidden = !logado;
-    for (const id of ['#sair', '#sinal', '#zoom', '#detalhe', '#vazias', '#total']) $(id).hidden = !logado;
+    for (const id of ['#sair', '#sinal', '#zoom', '#filtrar', '#detalhe', '#vazias', '#total']) $(id).hidden = !logado;
     if (!logado) setTimeout(() => $('#login').focus(), 0);
   }
   function sair() {
@@ -431,7 +482,7 @@
       <div class="carro-topo"><span class="placa">${esc(o.placa || '—')}</span><span class="num">OS ${esc(o.numero ?? '')}${variosPcs && o.pc ? ` · ${esc(o.pc)}` : ''}</span></div>
       <div class="modelo">${esc(o.modelo || 'Modelo não informado')}</div>
       ${o.cliente ? `<div class="cliente">${esc(o.cliente)}</div>` : ''}
-      ${o.etapa && o.etapa !== o.coluna ? `<span class="etapa-chip">${esc(o.etapa)}</span>` : ''}
+      ${o.etapa && o.etapa !== o.coluna ? `<span class="etapa-chip">${esc(st.nomes[o.etapa] || o.etapa)}</span>` : ''}
       <div class="bancada" data-estado="${esc(t.estado)}" title="${esc(t.dica)}"${t.bancada ? '' : ' hidden'}>${ICONE_MECANICO}<span class="bancada-texto">${esc(t.bancada)}</span></div>
       <div class="rodape"><span class="tempo${t.muito ? ' muito' : ''}" title="${entrada ? `Entrada em ${esc(entrada.toLocaleDateString('pt-BR'))} às ${esc(hora(entrada))}` : ''}">${ICONE_TEMPO}<span class="tempo-texto">${esc(t.aberta)}</span></span>
         <span class="mecanico${mecanico ? '' : ' sem'}" title="Mecânico">${ICONE_MECANICO}${mecanico ? esc(mecanico) : 'Sem mecânico'}</span></div></article>`;
@@ -442,12 +493,16 @@
     $('#oficina').textContent = d.oficina || 'Go Tech';
     const q = montarQuadro(d);
     st.quadro = q;
+    st.nomes = Object.fromEntries(q.colunas.map(c => [c.etapa, c.rotulo]));
     st.porRef = new Map(q.colunas.flatMap(c => c.os).map(o => [o.ref, o]));
-    $('#n-total').textContent = q.total;
+    pintarFiltros(q);
+    const visiveis = q.colunas.filter(c => !etapasOcultas.includes(c.etapa))
+      .map(c => { const os = c.os.filter(passaMecanico); return { ...c, os, quantidade: os.length }; });
+    $('#n-total').textContent = filtrando() ? `${visiveis.reduce((n, c) => n + c.quantidade, 0)} de ${q.total}` : q.total;
     const variosPcs = new Set(q.colunas.flatMap(c => c.os).map(o => o.pc).filter(Boolean)).size > 1;
-    const colunas = q.colunas.filter(c => vazias === 'mostrar' || c.quantidade);
-    $('#quadro').innerHTML = colunas.map(c => `<section class="coluna" role="listitem" data-etapa="${esc(c.etapa)}" data-cor="${esc(c.cor)}" aria-label="${esc(c.etapa)}: ${c.quantidade} OS">
-      <div class="coluna-topo"><h2>${esc(c.etapa)}</h2><span class="contador" title="${c.quantidade} OS">${c.quantidade}</span></div>
+    const colunas = visiveis.filter(c => vazias === 'mostrar' || c.quantidade);
+    $('#quadro').innerHTML = colunas.map(c => `<section class="coluna" role="listitem" data-etapa="${esc(c.etapa)}" data-cor="${esc(c.cor)}" aria-label="${esc(c.rotulo || c.etapa)}: ${c.quantidade} OS">
+      <div class="coluna-topo"><h2>${esc(c.rotulo || c.etapa)}</h2><span class="contador" title="${c.quantidade} OS">${c.quantidade}</span></div>
       <div class="lista" role="list">${c.os.map(o => cartao(o, variosPcs)).join('') || '<p class="coluna-vazia">Nenhuma OS</p>'}</div></section>`).join('')
       || '<div class="vazio">Nenhum carro no pátio agora.</div>';
     const f = $('#finalizadas');
