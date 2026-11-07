@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src https://ysoiqefnkjtessyhwzug.supabase.co; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
+<meta name="theme-color" content="#0b1120">
+<title>Go Tech · Ponto</title>
+<!--
+  Ponto dos funcionários pelo celular (Go Tech, 05/11/2026, pedido do Ronan; docs/ponto.md).
+  - Sem instalar nada: o funcionário abre o link que recebeu (…/ponto/#t=<segredo>), digita o PIN e toca em
+    "Bater ponto". O segredo vem depois do # (não vai para o servidor da página) e fica só neste celular
+    (localStorage); a página tira ele da barra de endereço na hora. O PIN NÃO fica salvo.
+  - A localização é lida UMA vez por batida (getCurrentPosition, alta precisão), só quando a pessoa toca no botão.
+    Nada de acompanhar a pessoa: não existe watchPosition aqui.
+  - Quem decide é o servidor (supabase/ponto.sql, função public.ponto_bater): link, PIN, raio, precisão do GPS,
+    intervalo e limite do dia, com a hora do servidor. Aqui só se mostra a distância como ajuda.
+  - O link trava no primeiro celular (decisão D7): a página cria um código aleatório do aparelho (localStorage) e
+    manda junto; o servidor guarda só o hash dele. Trocou de celular: o administrador libera no programa.
+  - Na página vai só a chave PÚBLICA (anon). Nunca uma chave service_role.
+-->
+<style>
+  :root { color-scheme: dark; --fundo: #0b1120; --cartao: #131c31; --borda: #24314f; --texto: #e6ebf5; --fraco: #93a0bd;
+          --ok: #22c55e; --erro: #f87171; --aviso: #fbbf24; --acao: #2563eb; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; background: var(--fundo); color: var(--texto); font: 17px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+         padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom)); }
+  main { max-width: 440px; margin: 0 auto; display: grid; gap: 16px; }
+  h1 { font-size: 1.35rem; margin: 4px 0 0; }
+  .sub { color: var(--fraco); margin: 0; font-size: .95rem; }
+  .cartao { background: var(--cartao); border: 1px solid var(--borda); border-radius: 14px; padding: 16px; display: grid; gap: 12px; }
+  label { display: grid; gap: 6px; font-weight: 600; }
+  input { font: inherit; font-size: 1.6rem; letter-spacing: .4em; text-align: center; padding: 12px; border-radius: 10px;
+          border: 1px solid var(--borda); background: #0e1628; color: var(--texto); width: 100%; }
+  button { font: inherit; font-weight: 700; border: 0; border-radius: 12px; padding: 16px; cursor: pointer; width: 100%; }
+  button.principal { background: var(--acao); color: #fff; font-size: 1.2rem; }
+  button.secundario { background: transparent; color: var(--texto); border: 1px solid var(--borda); }
+  button:disabled { opacity: .55; cursor: wait; }
+  .relogio { font-size: 2.6rem; font-weight: 800; text-align: center; font-variant-numeric: tabular-nums; }
+  #resultado { border-radius: 12px; padding: 14px; font-weight: 600; }
+  #resultado[data-estado=ok] { background: #0f2e1d; color: #bbf7d0; border: 1px solid var(--ok); }
+  #resultado[data-estado=erro] { background: #3a1416; color: #fecaca; border: 1px solid var(--erro); }
+  #resultado[data-estado=aviso] { background: #3a2c0a; color: #fde68a; border: 1px solid var(--aviso); }
+  ul { margin: 0; padding-left: 20px; }
+  .fraco { color: var(--fraco); font-size: .9rem; }
+</style>
+</head>
+<body>
+<main>
+  <header><h1>Ponto · <span id="nome">Go Tech</span></h1><p class="sub">A hora registrada é a do servidor.</p></header>
+
+  <section class="cartao" id="sem-link" hidden>
+    <strong>Este celular não tem o link do ponto.</strong>
+    <p class="fraco">Abra o link que o administrador mandou (pelo WhatsApp). Se ele já foi usado em outro celular, peça um novo.</p>
+  </section>
+
+  <section class="cartao" id="aviso" hidden>
+    <strong>Antes de usar</strong>
+    <p class="fraco" id="aviso-texto">A localização do celular só é lida na hora em que você toca em “Bater ponto”, uma única vez,
+      para conferir se você está na oficina. Ficam guardados a hora, o lugar e a distância até a oficina, para o controle de jornada.
+      Fora desse toque nada é acompanhado.</p>
+    <button class="principal" type="button" id="entendi">Entendi</button>
+  </section>
+
+  <section class="cartao" id="bater" hidden>
+    <div class="relogio" id="relogio">--:--</div>
+    <label>PIN (6 números)<input id="pin" type="password" inputmode="numeric" autocomplete="off" maxlength="6" pattern="[0-9]{6}"></label>
+    <button class="principal" type="button" id="botao-bater">Bater ponto</button>
+    <div id="resultado" role="status" hidden></div>
+    <button class="secundario" type="button" id="botao-hoje">Ver minhas batidas de hoje</button>
+    <div id="hoje" hidden></div>
+    <p class="fraco">Ative a localização do celular e fique perto da oficina. O PIN não fica salvo.</p>
+  </section>
+</main>
+<script>
+// ==== ponto (puro: sem DOM; tests/test_ponto_web.py roda este trecho no Node) ====
+const RAIO_TERRA_M = 6371000;
+function distanciaM(lat1, lon1, lat2, lon2) {
+  const r = g => g * Math.PI / 180;
+  const a = Math.sin(r(lat2 - lat1) / 2) ** 2 + Math.cos(r(lat1)) * Math.cos(r(lat2)) * Math.sin(r(lon2 - lon1) / 2) ** 2;
+  return 2 * RAIO_TERRA_M * Math.asin(Math.sqrt(Math.min(1, a)));
+}
+function minutos(s) {
+  const m = Math.max(1, Math.ceil((Number(s) || 0) / 60));
+  return m === 1 ? '1 minuto' : `${m} minutos`;
+}
+// resposta de ponto_bater/ponto_hoje -> {estado, texto}
+function mensagem(r) {
+  if (!r || typeof r !== 'object') return { estado: 'erro', texto: 'Resposta estranha do servidor. Tente de novo.' };
+  if (r.ok) return { estado: 'ok', texto: `Ponto registrado às ${r.hora}${r.numero ? ` (${r.numero}ª batida de hoje)` : ''}.` };
+  switch (r.motivo) {
+    case 'link_invalido': return { estado: 'erro', texto: 'Este link não vale mais. Peça um novo ao administrador.' };
+    case 'pin_errado': return { estado: 'erro', texto: `PIN errado.${r.restam != null ? ` Mais ${r.restam} tentativa(s) e o ponto trava por 15 minutos.` : ''}` };
+    case 'outro_aparelho': return { estado: 'erro', texto: 'Este link já está ligado a outro celular. Peça ao administrador para liberar este aparelho.' };
+    case 'bloqueado': return { estado: 'erro', texto: `Muitos PINs errados. Tente de novo em ${minutos(r.espere_s)}.` };
+    case 'desligado': return { estado: 'aviso', texto: 'O ponto pelo celular está desligado na oficina. Fale com o administrador.' };
+    case 'sem_local': return { estado: 'erro', texto: 'Não deu para saber onde o celular está. Ligue a localização e tente de novo.' };
+    case 'precisao_ruim': return { estado: 'aviso', texto: `O GPS está impreciso agora (±${r.precisao_m} m; o máximo é ${r.maximo_m} m). Vá para perto de uma janela ou para fora e tente de novo.` };
+    case 'fora_do_raio': return { estado: 'erro', texto: `Você está a ${r.distancia_m} m da oficina (o limite é ${r.raio_m} m). Bata o ponto na oficina.` };
+    case 'muito_cedo': return { estado: 'aviso', texto: `Você acabou de bater o ponto. Espere ${minutos(r.espere_s)} para bater de novo.` };
+    case 'limite_dia': return { estado: 'aviso', texto: `Já são ${r.limite} batidas hoje, o máximo. Fale com o administrador se precisar corrigir.` };
+    default: return { estado: 'erro', texto: 'Não deu para bater o ponto. Tente de novo.' };
+  }
+}
+// segredo do link: '#t=<segredo>' (base64url, 20 a 100 letras) ou null
+function lerToken(hash) {
+  const m = /(?:^#|&)t=([A-Za-z0-9_-]{20,100})(?:&|$)/.exec(String(hash || ''));
+  return m ? m[1] : null;
+}
+function pinValido(pin) { return /^[0-9]{6}$/.test(String(pin || '')); }
+// codigo do aparelho: 16 bytes aleatorios em hex (32 letras); o servidor guarda so o hash
+function novoAparelho(bytes) { return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join(''); }
+function aparelhoValido(texto) { return /^[0-9a-f]{32}$/.test(String(texto || '')); }
+// ==== fim do ponto ====
+
+(() => {
+  const SUPABASE = 'https://ysoiqefnkjtessyhwzug.supabase.co', CHAVE = 'sb_publishable_01273TSKNqVnSbDioqcJZA_yxmcH8lR';
+  const CHAVE_TOKEN = 'gotech_ponto_link', CHAVE_AVISO = 'gotech_ponto_aviso', CHAVE_APARELHO = 'gotech_ponto_aparelho';
+  const $ = id => document.getElementById(id);
+  let token = lerToken(location.hash);
+  try {
+    if (token) localStorage.setItem(CHAVE_TOKEN, token); else token = localStorage.getItem(CHAVE_TOKEN);
+  } catch (e) { /* navegador sem armazenamento: vale so nesta aba */ }
+  if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+  let aparelho = null;
+  try { aparelho = localStorage.getItem(CHAVE_APARELHO); } catch (e) { /* sem armazenamento */ }
+  if (!aparelhoValido(aparelho)) {
+    aparelho = novoAparelho(crypto.getRandomValues(new Uint8Array(16)));
+    try { localStorage.setItem(CHAVE_APARELHO, aparelho); } catch (e) { /* vale so nesta aba */ }
+  }
+
+  const mostrar = () => {
+    $('sem-link').hidden = !!token;
+    let viu = false;
+    try { viu = localStorage.getItem(CHAVE_AVISO) === '1'; } catch (e) { /* sem armazenamento */ }
+    $('aviso').hidden = !token || viu;
+    $('bater').hidden = !token || !viu;
+  };
+  $('entendi').addEventListener('click', () => { try { localStorage.setItem(CHAVE_AVISO, '1'); } catch (e) { /* ok */ } $('aviso').hidden = true; $('bater').hidden = false; });
+  mostrar();
+
+  const tique = () => { $('relogio').textContent = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }); };
+  tique(); setInterval(tique, 10000);
+
+  async function rpc(nome, corpo) {
+    const r = await fetch(`${SUPABASE}/rest/v1/rpc/${nome}`, {
+      method: 'POST', cache: 'no-store',
+      headers: { apikey: CHAVE, 'Content-Type': 'application/json' },  // como o patio_web: so a chave publica
+      body: JSON.stringify(corpo) });
+    if (!r.ok) throw new Error(`servidor respondeu ${r.status}`);
+    return r.json();
+  }
+  const resultado = (m) => { const el = $('resultado'); el.hidden = false; el.dataset.estado = m.estado; el.textContent = m.texto; };
+  const posicao = () => new Promise((ok, falha) => {
+    if (!navigator.geolocation) { falha(new Error('sem GPS')); return; }
+    navigator.geolocation.getCurrentPosition(ok, falha, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+  });
+
+  $('botao-bater').addEventListener('click', async () => {
+    const pin = $('pin').value.trim(), botao = $('botao-bater');
+    if (!pinValido(pin)) { resultado({ estado: 'erro', texto: 'Digite o PIN de 6 números.' }); return; }
+    botao.disabled = true;
+    resultado({ estado: 'aviso', texto: 'Lendo a localização…' });
+    let p;
+    try { p = await posicao(); } catch (e) {
+      resultado({ estado: 'erro', texto: e && e.code === 1 ? 'A localização foi negada. Libere a localização para esta página nas configurações do navegador.' : 'Não deu para ler a localização. Ligue o GPS e tente de novo.' });
+      botao.disabled = false; return;
+    }
+    resultado({ estado: 'aviso', texto: 'Registrando…' });
+    try {
+      const r = await rpc('ponto_bater', { p_token: token, p_aparelho: aparelho, p_pin: pin, p_lat: p.coords.latitude, p_lon: p.coords.longitude, p_precisao: p.coords.accuracy });
+      resultado(mensagem(r));
+      if (r && r.nome) $('nome').textContent = r.nome;
+      if (r && r.ok) { $('pin').value = ''; $('hoje').hidden = true; }
+    } catch (e) { resultado({ estado: 'erro', texto: 'Sem conexão com o servidor. Confira a internet e tente de novo.' }); }
+    finally { botao.disabled = false; }
+  });
+
+  $('botao-hoje').addEventListener('click', async () => {
+    const pin = $('pin').value.trim(), botao = $('botao-hoje'), caixa = $('hoje');
+    if (!pinValido(pin)) { resultado({ estado: 'erro', texto: 'Digite o PIN para ver as suas batidas.' }); return; }
+    botao.disabled = true;
+    try {
+      const r = await rpc('ponto_hoje', { p_token: token, p_aparelho: aparelho, p_pin: pin });
+      if (!r || !r.ok) { resultado(mensagem(r)); return; }
+      $('nome').textContent = r.nome;
+      caixa.hidden = false;
+      caixa.replaceChildren();
+      if (!r.batidas.length) { caixa.textContent = 'Nenhuma batida hoje.'; return; }
+      const ul = document.createElement('ul');
+      r.batidas.forEach(h => { const li = document.createElement('li'); li.textContent = h; ul.appendChild(li); });
+      caixa.appendChild(ul);
+    } catch (e) { resultado({ estado: 'erro', texto: 'Sem conexão com o servidor. Confira a internet e tente de novo.' }); }
+    finally { botao.disabled = false; }
+  });
+})();
+</script>
+</body>
+</html>
