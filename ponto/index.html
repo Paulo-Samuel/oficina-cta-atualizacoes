@@ -13,10 +13,12 @@
   - Sem instalar nada: o funcionário abre o link que recebeu (…/ponto/#t=<segredo>), digita o PIN e toca em
     "Bater ponto". O segredo vem depois do # (não vai para o servidor da página) e fica só neste celular
     (localStorage); a página tira ele da barra de endereço na hora. O PIN NÃO fica salvo.
-  - A localização é lida UMA vez por batida (getCurrentPosition, alta precisão), só quando a pessoa toca no botão.
+  - A localização é OPCIONAL (11/11/2026, supabase/ponto_sem_local.sql): a página primeiro chama ponto_bater SEM
+    localização. Se a oficina exige localização, o servidor responde 'sem_local' e só então a página lê o GPS UMA vez
+    (getCurrentPosition, alta precisão) e chama de novo. Com a localização desligada o GPS nunca é pedido.
     Nada de acompanhar a pessoa: não existe watchPosition aqui.
-  - Quem decide é o servidor (supabase/ponto.sql, função public.ponto_bater): link, PIN, raio, precisão do GPS,
-    intervalo e limite do dia, com a hora do servidor. Aqui só se mostra a distância como ajuda.
+  - Quem decide é o servidor (supabase/ponto.sql + ponto_sem_local.sql, função public.ponto_bater): link, PIN, se exige
+    local, raio, precisão do GPS, intervalo e limite do dia, com a hora do servidor.
   - O link trava no primeiro celular (decisão D7): a página cria um código aleatório do aparelho (localStorage) e
     manda junto; o servidor guarda só o hash dele. Trocou de celular: o administrador libera no programa.
   - Na página vai só a chave PÚBLICA (anon). Nunca uma chave service_role.
@@ -58,9 +60,9 @@
 
   <section class="cartao" id="aviso" hidden>
     <strong>Antes de usar</strong>
-    <p class="fraco" id="aviso-texto">A localização do celular só é lida na hora em que você toca em “Bater ponto”, uma única vez,
-      para conferir se você está na oficina. Ficam guardados a hora, o lugar e a distância até a oficina, para o controle de jornada.
-      Fora desse toque nada é acompanhado.</p>
+    <p class="fraco" id="aviso-texto">Fica guardada a hora de cada batida, para o controle de jornada. Se a oficina pedir,
+      a localização só é lida na hora em que você toca em “Bater ponto”, uma única vez, para conferir se você está na oficina
+      (aí ficam também o lugar e a distância). Fora desse toque nada é acompanhado.</p>
     <button class="principal" type="button" id="entendi">Entendi</button>
   </section>
 
@@ -71,7 +73,7 @@
     <div id="resultado" role="status" hidden></div>
     <button class="secundario" type="button" id="botao-hoje">Ver minhas batidas de hoje</button>
     <div id="hoje" hidden></div>
-    <p class="fraco">Ative a localização do celular e fique perto da oficina. O PIN não fica salvo.</p>
+    <p class="fraco">Se a oficina pedir a localização, ative-a no celular e fique perto da oficina. O PIN não fica salvo.</p>
   </section>
 </main>
 <script>
@@ -113,6 +115,8 @@ function pinValido(pin) { return /^[0-9]{6}$/.test(String(pin || '')); }
 // codigo do aparelho: 16 bytes aleatorios em hex (32 letras); o servidor guarda so o hash
 function novoAparelho(bytes) { return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join(''); }
 function aparelhoValido(texto) { return /^[0-9a-f]{32}$/.test(String(texto || '')); }
+// a primeira chamada vai sem localizacao; so 'sem_local' (a oficina exige GPS) faz a pagina ler o GPS e tentar de novo
+function precisaLocal(r) { return !!r && typeof r === 'object' && r.ok === false && r.motivo === 'sem_local'; }
 // ==== fim do ponto ====
 
 (() => {
@@ -162,15 +166,21 @@ function aparelhoValido(texto) { return /^[0-9a-f]{32}$/.test(String(texto || ''
     const pin = $('pin').value.trim(), botao = $('botao-bater');
     if (!pinValido(pin)) { resultado({ estado: 'erro', texto: 'Digite o PIN de 6 números.' }); return; }
     botao.disabled = true;
-    resultado({ estado: 'aviso', texto: 'Lendo a localização…' });
-    let p;
-    try { p = await posicao(); } catch (e) {
-      resultado({ estado: 'erro', texto: e && e.code === 1 ? 'A localização foi negada. Libere a localização para esta página nas configurações do navegador.' : 'Não deu para ler a localização. Ligue o GPS e tente de novo.' });
-      botao.disabled = false; return;
-    }
+    // sem localizacao primeiro: com a localizacao desligada na oficina o GPS nem e pedido
+    const bater = p => rpc('ponto_bater', { p_token: token, p_aparelho: aparelho, p_pin: pin, p_lat: p ? p.coords.latitude : null, p_lon: p ? p.coords.longitude : null, p_precisao: p ? p.coords.accuracy : null });
     resultado({ estado: 'aviso', texto: 'Registrando…' });
     try {
-      const r = await rpc('ponto_bater', { p_token: token, p_aparelho: aparelho, p_pin: pin, p_lat: p.coords.latitude, p_lon: p.coords.longitude, p_precisao: p.coords.accuracy });
+      let r = await bater(null);
+      if (precisaLocal(r)) {
+        resultado({ estado: 'aviso', texto: 'Lendo a localização…' });
+        let p;
+        try { p = await posicao(); } catch (e) {
+          resultado({ estado: 'erro', texto: e && e.code === 1 ? 'A localização foi negada. Libere a localização para esta página nas configurações do navegador.' : 'Não deu para ler a localização. Ligue o GPS e tente de novo.' });
+          return;
+        }
+        resultado({ estado: 'aviso', texto: 'Registrando…' });
+        r = await bater(p);
+      }
       resultado(mensagem(r));
       if (r && r.nome) $('nome').textContent = r.nome;
       if (r && r.ok) { $('pin').value = ''; $('hoje').hidden = true; }
