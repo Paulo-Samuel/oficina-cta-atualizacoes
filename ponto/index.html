@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex, nofollow">
 <meta name="referrer" content="no-referrer">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src https://ysoiqefnkjtessyhwzug.supabase.co; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
-<meta name="theme-color" content="#0b1120">
+<meta name="theme-color" content="#0c1018">
 <title>Go Tech · Ponto</title>
 <!--
   Ponto dos funcionários pelo celular (Go Tech, 05/11/2026, pedido do Ronan; docs/ponto.md).
@@ -24,27 +24,38 @@
   - Na página vai só a chave PÚBLICA (anon). Nunca uma chave service_role.
 -->
 <style>
-  :root { color-scheme: dark; --fundo: #0b1120; --cartao: #131c31; --borda: #24314f; --texto: #e6ebf5; --fraco: #93a0bd;
-          --ok: #22c55e; --erro: #f87171; --aviso: #fbbf24; --acao: #2563eb; }
+  /* paleta "bancada" (18/11/2026), a mesma do painel e do site no escuro: fundo chapado, cantos quase retos, sem sombra,
+     ambar so no botao principal (letra escura). Verde, vermelho e amarelo do resultado sao os de estado do painel.
+     Letras: Barlow Condensed nos titulos e Barlow no texto quando o celular tem; a pagina e um arquivo so e a CSP nao
+     deixa carregar fonte, entao o normal e cair na letra condensada do proprio aparelho (--titulo). */
+  :root { color-scheme: dark; --fundo: #0c1018; --cartao: #161c28; --borda: #2a3242; --borda-forte: #3d4759; --texto: #eef1f7; --fraco: #b4bccb;
+          --ok: #98d7ad; --ok-fundo: #243e2e; --erro: #f29c92; --erro-fundo: #412b29; --aviso: #e9c37b; --aviso-fundo: #3b3321;
+          --ambar: #ffb21e; --ambar-claro: #ffc44d; --tinta: #0e1420;
+          --titulo: "Barlow Condensed", "Bahnschrift Condensed", "Avenir Next Condensed", "Roboto Condensed", "sans-serif-condensed", "Arial Narrow", "Segoe UI", system-ui, sans-serif; }
   * { box-sizing: border-box; }
-  body { margin: 0; min-height: 100vh; background: var(--fundo); color: var(--texto); font: 17px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* o "display: grid" do .cartao ganhava do atributo hidden: os tres cartoes (sem link, antes de usar, bater) apareciam juntos */
+  [hidden] { display: none !important; }
+  body { margin: 0; min-height: 100vh; background: var(--fundo); color: var(--texto); font: 17px/1.45 "Barlow", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
          padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom)); }
   main { max-width: 440px; margin: 0 auto; display: grid; gap: 16px; }
-  h1 { font-size: 1.35rem; margin: 4px 0 0; }
+  h1 { font: 700 2rem/1.05 var(--titulo); letter-spacing: .01em; text-transform: uppercase; margin: 4px 0 4px; }
   .sub { color: var(--fraco); margin: 0; font-size: .95rem; }
-  .cartao { background: var(--cartao); border: 1px solid var(--borda); border-radius: 14px; padding: 16px; display: grid; gap: 12px; }
+  .cartao { background: var(--cartao); border: 1px solid var(--borda); border-radius: 4px; padding: 16px; display: grid; gap: 12px; }
   label { display: grid; gap: 6px; font-weight: 600; }
-  input { font: inherit; font-size: 1.6rem; letter-spacing: .4em; text-align: center; padding: 12px; border-radius: 10px;
-          border: 1px solid var(--borda); background: #0e1628; color: var(--texto); width: 100%; }
-  button { font: inherit; font-weight: 700; border: 0; border-radius: 12px; padding: 16px; cursor: pointer; width: 100%; }
-  button.principal { background: var(--acao); color: #fff; font-size: 1.2rem; }
-  button.secundario { background: transparent; color: var(--texto); border: 1px solid var(--borda); }
+  input { font: inherit; font-size: 1.6rem; letter-spacing: .4em; text-align: center; padding: 12px; border-radius: 3px;
+          border: 1px solid var(--borda-forte); background: var(--fundo); color: var(--texto); width: 100%; }
+  input:focus-visible { outline: 3px solid var(--ambar); outline-offset: 1px; }
+  button { font: inherit; font-weight: 700; border: 0; border-radius: 3px; padding: 16px; cursor: pointer; width: 100%; }
+  button.principal { background: var(--ambar); color: var(--tinta); font: 700 1.5rem/1.15 var(--titulo); letter-spacing: .04em; text-transform: uppercase; }
+  button.principal:hover:not(:disabled) { background: var(--ambar-claro); }
+  button.secundario { background: transparent; color: var(--texto); border: 1px solid var(--borda-forte); }
+  button:focus-visible { outline: 3px solid var(--texto); outline-offset: 2px; }
   button:disabled { opacity: .55; cursor: wait; }
-  .relogio { font-size: 2.6rem; font-weight: 800; text-align: center; font-variant-numeric: tabular-nums; }
-  #resultado { border-radius: 12px; padding: 14px; font-weight: 600; }
-  #resultado[data-estado=ok] { background: #0f2e1d; color: #bbf7d0; border: 1px solid var(--ok); }
-  #resultado[data-estado=erro] { background: #3a1416; color: #fecaca; border: 1px solid var(--erro); }
-  #resultado[data-estado=aviso] { background: #3a2c0a; color: #fde68a; border: 1px solid var(--aviso); }
+  .relogio { font: 700 3.6rem/1 var(--titulo); letter-spacing: .02em; text-align: center; font-variant-numeric: tabular-nums; }
+  #resultado { border-radius: 3px; padding: 14px; font-weight: 600; }
+  #resultado[data-estado=ok] { background: var(--ok-fundo); color: var(--ok); border: 1px solid var(--ok); }
+  #resultado[data-estado=erro] { background: var(--erro-fundo); color: var(--erro); border: 1px solid var(--erro); }
+  #resultado[data-estado=aviso] { background: var(--aviso-fundo); color: var(--aviso); border: 1px solid var(--aviso); }
   ul { margin: 0; padding-left: 20px; }
   .fraco { color: var(--fraco); font-size: .9rem; }
 </style>
