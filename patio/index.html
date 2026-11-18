@@ -6,18 +6,25 @@
 <meta name="robots" content="noindex, nofollow">
 <meta name="referrer" content="no-referrer">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src https://ysoiqefnkjtessyhwzug.supabase.co; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
-<meta name="theme-color" content="#0b1120">
+<meta name="theme-color" content="#0c1018">
 <title>Go Tech · Pátio</title>
 <!--
   Painel do pátio no navegador (Go Tech, 04/11/2026; docs/SINCRONIZACAO.md §9). Pedido do Ronan: o menino do
   pátio vê a OS que a recepção abriu, na TV ou num computador qualquer, SEM instalar o programa.
-  - Só para ver: nenhum botão muda OS. Lê só a função public.patio_web_painel (supabase/patio_web.sql), que
+  - Lê a função public.patio_web_painel (supabase/patio_web.sql; versão 3 em supabase/patio_web_edicao.sql), que
     devolve placa, modelo, cliente (nome), mecânico, situação, etapa, datas e o relógio do mecânico -- nada de
     CPF/CNPJ nem valores.
+  - Mudar a ETAPA (09/11/2026, docs/SINCRONIZACAO.md §9.5): com "Mudar etapas" ligado, cada carro editável ganha um
+    seletor de etapa. Chama só public.patio_web_editar(p_ref, p_etapa): a nuvem muda na hora ("Salvo") e o PC dono da
+    OS grava no programa quando conectar ("sincronizando com o PC", discreto; não bloqueia). Só aparece para quem a
+    função diz que pode (pode_editar) e nas OS que ela marca como editável. Nada de mecânico, itens, valores ou notas.
   - O mesmo quadro do Pátio do programa no modo TV (feedback do Ronan, 04/11/2026): uma coluna por etapa, na ordem
     do programa (banco.ETAPAS_OS), com o contador; as etapas desmarcadas no programa somem (a não ser que tenham
     carro); a OS finalizada SAI do quadro e vai para a faixa "Entregues/finalizadas hoje"; o relógio do mecânico
     ("na bancada há 1h20") ao lado do tempo da OS ("aberta há 15 h"); letras A-/A+ de 50% a 150%.
+  - Tempo NA ETAPA atual (11/11/2026, pedido do Paulo): "na etapa há 2 d 3 h", desde a última vez que o carro mudou de
+    etapa no programa (campo 'etapa_desde' = {etapa, em UTC}). Só aparece com o SQL novo (patio_web_edicao.sql rodado
+    de novo), com a OS movida depois da versão nova e enquanto a etapa da nuvem é a mesma do PC.
   - Funciona com a função antiga (sem 'finalizadas_hoje', 'relogio' e 'etapas'): separa as finalizadas aqui, mostra
     só o tempo da OS e usa as colunas padrão.
   - Entra com o login da equipe (ou o e-mail da conta) e a senha, no Auth do Supabase. Na página vai só a chave
@@ -26,22 +33,28 @@
   - https://ysoiqefnkjtessyhwzug.supabase.co e sb_publishable_01273TSKNqVnSbDioqcJZA_yxmcH8lR são trocados na publicação (scripts/publicar_patio_web.py).
 -->
 <style>
-  /* cores: as mesmas do painel do programa (assets/painel/painel.css), escuro por padrao (TV) */
-  :root { --bg: #f4f6fa; --card: #fff; --card-2: #f7f9fc; --texto: #2b3445; --apagado: #566074; --borda: #e2e7f0; --borda-forte: #c8d0de;
-    --cor: #2457e6; --ok: #23744c; --ok-dim: #e9f5ed; --alerta: #946119; --alerta-dim: #fff4dd; --ruim: #bd423d; --ruim-dim: #fff0ee;
-    --topo: #0e1a33; --placa-fundo: #fff; --placa-borda: #1d2533; --placa-faixa: #2457e6;
+  /* cores: as mesmas do painel do programa (assets/painel/painel.css, paleta "bancada" de 18/11/2026: papel e tinta,
+     ambar so no botao de entrar e num destaque por tela), escuro por padrao (TV). As cores de etapa e de estado nao mudaram.
+     Letras: Barlow Condensed nos titulos e Barlow no texto quando o aparelho tem; a pagina e um arquivo so e a CSP nao
+     deixa carregar fonte, entao o normal e cair na letra condensada do proprio aparelho (--titulo). */
+  :root { --bg: #f3f0e8; --card: #fff; --card-2: #f8f6f0; --texto: #161c28; --apagado: #4d5566; --borda: #dcd7ca; --borda-forte: #bdb7a8;
+    --cor: #161c28; --ambar: #ffb21e; --ambar-claro: #ffc44d; --tinta: #0e1420;
+    --ok: #23744c; --ok-dim: #e9f5ed; --alerta: #946119; --alerta-dim: #fff4dd; --ruim: #bd423d; --ruim-dim: #fff0ee;
+    --topo: #0c1018; --topo-linha: #2a3242; --topo-fraco: #b4bccb; --placa-fundo: #fff; --placa-borda: #1d2533; --placa-faixa: #2457e6;
+    --titulo: "Barlow Condensed", "Bahnschrift Condensed", "Avenir Next Condensed", "Roboto Condensed", "sans-serif-condensed", "Arial Narrow", "Segoe UI", system-ui, sans-serif;
+    --letra: "Barlow", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
     --pt-neutro: #5c5f63; --pt-neutro-dim: #efeeec; --pt-azul: #2558a8; --pt-azul-dim: #e8f0fc; --pt-roxo: #6a3fb0; --pt-roxo-dim: #f1ebfb;
     --pt-ciano: #0d6f69; --pt-ciano-dim: #e2f3f1; --pt-anil: #3d45a3; --pt-anil-dim: #ebecfa; --pt-rosa: #a3326a; --pt-rosa-dim: #fbe9f2;
     --pt-ardosia: #4a5870; --pt-ardosia-dim: #ebeff4; --pt-laranja: #ad4a12; --pt-laranja-dim: #fff0e4; color-scheme: light; }
-  :root[data-tema="escuro"] { --bg: #0b1120; --card: #151d30; --card-2: #1a2338; --texto: #eef1f7; --apagado: #a9b3c6; --borda: #263049; --borda-forte: #3a4766;
-    --cor: #8fb0ff; --ok: #98d7ad; --ok-dim: #243e2e; --alerta: #e9c37b; --alerta-dim: #3b3321; --ruim: #f29c92; --ruim-dim: #412b29;
-    --topo: #070c18; --placa-fundo: #f3f5f9; --placa-borda: #000;
+  :root[data-tema="escuro"] { --bg: #0c1018; --card: #161c28; --card-2: #1c2331; --texto: #eef1f7; --apagado: #b4bccb; --borda: #2a3242; --borda-forte: #3d4759;
+    --cor: #ffb21e; --ok: #98d7ad; --ok-dim: #243e2e; --alerta: #e9c37b; --alerta-dim: #3b3321; --ruim: #f29c92; --ruim-dim: #412b29;
+    --topo: #080b11; --placa-fundo: #f3f5f9; --placa-borda: #000;
     --pt-neutro: #c9c6c1; --pt-neutro-dim: #2f2f34; --pt-azul: #9cc0ff; --pt-azul-dim: #1f2b40; --pt-roxo: #c9a8ff; --pt-roxo-dim: #2c2440;
     --pt-ciano: #7fd6cc; --pt-ciano-dim: #1b3533; --pt-anil: #aab0ff; --pt-anil-dim: #252842; --pt-rosa: #f5a3c9; --pt-rosa-dim: #3d2232;
     --pt-ardosia: #b4c0d4; --pt-ardosia-dim: #283039; --pt-laranja: #f2a56f; --pt-laranja-dim: #422e23; color-scheme: dark; }
-  @media (prefers-color-scheme: dark) { :root[data-tema="auto"] { --bg: #0b1120; --card: #151d30; --card-2: #1a2338; --texto: #eef1f7; --apagado: #a9b3c6;
-    --borda: #263049; --borda-forte: #3a4766; --cor: #8fb0ff; --ok: #98d7ad; --ok-dim: #243e2e; --alerta: #e9c37b; --alerta-dim: #3b3321;
-    --ruim: #f29c92; --ruim-dim: #412b29; --topo: #070c18; --placa-fundo: #f3f5f9; --placa-borda: #000;
+  @media (prefers-color-scheme: dark) { :root[data-tema="auto"] { --bg: #0c1018; --card: #161c28; --card-2: #1c2331; --texto: #eef1f7; --apagado: #b4bccb;
+    --borda: #2a3242; --borda-forte: #3d4759; --cor: #ffb21e; --ok: #98d7ad; --ok-dim: #243e2e; --alerta: #e9c37b; --alerta-dim: #3b3321;
+    --ruim: #f29c92; --ruim-dim: #412b29; --topo: #080b11; --placa-fundo: #f3f5f9; --placa-borda: #000;
     --pt-neutro: #c9c6c1; --pt-neutro-dim: #2f2f34; --pt-azul: #9cc0ff; --pt-azul-dim: #1f2b40; --pt-roxo: #c9a8ff; --pt-roxo-dim: #2c2440;
     --pt-ciano: #7fd6cc; --pt-ciano-dim: #1b3533; --pt-anil: #aab0ff; --pt-anil-dim: #252842; --pt-rosa: #f5a3c9; --pt-rosa-dim: #3d2232;
     --pt-ardosia: #b4c0d4; --pt-ardosia-dim: #283039; --pt-laranja: #f2a56f; --pt-laranja-dim: #422e23; color-scheme: dark; } }
@@ -52,34 +65,35 @@
   html, body { height: 100%; }
   /* TV: a pagina NUNCA rola; cada coluna rola sozinha se tiver carro demais (como o modo TV do programa) */
   body { margin: 0; display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden; background: var(--bg); color: var(--texto);
-    font: 1rem/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; --e: .8; }
+    font: 1rem/1.35 var(--letra); --e: .8; }
   button, input { font: inherit; }
-  header { flex: 0 0 auto; display: flex; align-items: center; flex-wrap: wrap; gap: .3rem .7rem; padding: .4rem 1rem; background: var(--topo); color: #fff; }
-  header h1 { margin: 0; font-size: 1.15rem; letter-spacing: .01em; }
-  header .oficina { color: #c9d3e6; font-size: .75rem; }
+  header { flex: 0 0 auto; display: flex; align-items: center; flex-wrap: wrap; gap: .3rem .7rem; padding: .4rem 1rem; background: var(--topo); color: #fff; border-bottom: 1px solid var(--topo-linha); }
+  header h1 { margin: 0; font: 700 1.6rem/1 var(--titulo); letter-spacing: .02em; text-transform: uppercase; }
+  header .oficina { color: var(--topo-fraco); font-size: .75rem; }
   header .esp { flex: 1; }
-  .total { font-size: .8rem; color: #c9d3e6; white-space: nowrap; }
-  .total b { color: #fff; font-variant-numeric: tabular-nums; }
+  .total { font-size: .8rem; color: var(--topo-fraco); white-space: nowrap; }
+  /* o destaque da tela: quantos carros estao no patio */
+  .total b { color: var(--ambar); font: 700 1.6rem/1 var(--titulo); font-variant-numeric: tabular-nums; margin-right: .1em; }
   .relogio { font: 700 1.35rem/1 ui-monospace, "Cascadia Mono", Consolas, monospace; font-variant-numeric: tabular-nums; }
-  .sinal { display: inline-flex; align-items: center; gap: .35rem; font-size: .75rem; color: #c9d3e6; white-space: nowrap; }
+  .sinal { display: inline-flex; align-items: center; gap: .35rem; font-size: .75rem; color: var(--topo-fraco); white-space: nowrap; }
   .sinal::before { content: ""; width: .6rem; height: .6rem; border-radius: 50%; background: #3ccf7d; }
   .sinal[data-estado="atrasado"]::before { background: #ffb020; }
   .sinal[data-estado="parado"]::before { background: #ff5a4f; }
-  .icone { border: 1px solid #ffffff40; background: #ffffff14; color: #fff; border-radius: .45rem; padding: .22rem .55rem; font-size: .72rem; cursor: pointer; white-space: nowrap; }
-  .icone:hover, .icone:focus-visible { background: #ffffff2a; outline: none; }
+  .icone { border: 1px solid #ffffff40; background: transparent; color: #fff; border-radius: 3px; padding: .22rem .55rem; font-size: .72rem; cursor: pointer; white-space: nowrap; }
+  .icone:hover, .icone:focus-visible { background: #ffffff24; outline: none; }
   .icone:disabled { opacity: .4; cursor: default; }
   .zoom { display: inline-flex; align-items: center; gap: .25rem; }
   .zoom output { min-width: 3.1em; text-align: center; font-size: .75rem; font-weight: 650; font-variant-numeric: tabular-nums; }
   main { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: .5rem; padding: .55rem .7rem .5rem; }
   .avisos { flex: 0 0 auto; display: grid; gap: .35rem; }
   .avisos:empty { display: none; }
-  .aviso { padding: .35rem .7rem; border-radius: .5rem; font-size: .75rem; background: var(--alerta-dim); color: var(--alerta); }
-  .aviso.ruim { background: var(--ruim-dim); color: var(--ruim); }
+  .aviso { padding: .35rem .7rem; border-radius: 3px; border-left: 4px solid var(--alerta); font-size: .75rem; background: var(--alerta-dim); color: var(--alerta); }
+  .aviso.ruim { background: var(--ruim-dim); color: var(--ruim); border-left-color: var(--ruim); }
   /* o quadro: uma coluna por etapa; as que nao cabem descem para outra linha; letras pela largura da coluna (cqi) e pelo A-/A+ */
   .quadro { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(calc(max(140px, 7.3vw) * var(--e)), 1fr));
     grid-auto-rows: minmax(0, 1fr); align-items: stretch; gap: 10px; overflow: hidden; }
   .coluna { --c: var(--pt-neutro); --c-dim: var(--pt-neutro-dim); container-type: inline-size; min-width: 0; min-height: 0; display: flex; flex-direction: column;
-    background: var(--card-2); border: 1px solid var(--borda); border-top: 4px solid var(--c); border-radius: 10px; }
+    background: var(--card-2); border: 1px solid var(--borda); border-top: 4px solid var(--c); border-radius: 4px; }
   .coluna[data-cor="azul"] { --c: var(--pt-azul); --c-dim: var(--pt-azul-dim); }
   .coluna[data-cor="roxo"] { --c: var(--pt-roxo); --c-dim: var(--pt-roxo-dim); }
   .coluna[data-cor="ambar"] { --c: var(--alerta); --c-dim: var(--alerta-dim); }
@@ -90,30 +104,41 @@
   .coluna[data-cor="rosa"] { --c: var(--pt-rosa); --c-dim: var(--pt-rosa-dim); }
   .coluna[data-cor="ardosia"] { --c: var(--pt-ardosia); --c-dim: var(--pt-ardosia-dim); }
   .coluna[data-cor="verde"] { --c: var(--ok); --c-dim: var(--ok-dim); }
-  .coluna-topo { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: calc(8px * var(--e)) calc(10px * var(--e)); background: var(--c-dim); border-radius: 5px 5px 0 0; }
+  .coluna-topo { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: calc(8px * var(--e)) calc(10px * var(--e)); background: var(--c-dim); border-bottom: 1px solid var(--borda); }
+  /* o nome da etapa fica como era (mesma letra, mesmo tamanho, sem caixa alta): em caixa alta ele passa a quebrar no
+     meio da palavra nas colunas estreitas com as letras em 150% */
   .coluna-topo h2 { margin: 0; font-size: calc(clamp(13px, 9cqi, max(27px, 1.4vw)) * var(--e)); line-height: 1.25; overflow-wrap: break-word; min-width: 0; }
-  .contador { flex: 0 0 auto; min-width: 1.9em; padding: 1px .45em; border-radius: 999px; background: var(--c); color: var(--card); font-weight: 700; text-align: center;
+  .contador { flex: 0 0 auto; min-width: 1.9em; padding: 1px .45em; border-radius: 3px; background: var(--c); color: var(--card); font-weight: 700; text-align: center;
     font-size: calc(clamp(13px, 8cqi, max(24px, 1.25vw)) * var(--e)); font-variant-numeric: tabular-nums; }
   .lista { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: calc(8px * var(--e)); padding: calc(7px * var(--e)); scrollbar-width: thin; }
-  .coluna-vazia { margin: 0; padding: 12px 6px; text-align: center; color: var(--apagado); border: 1px dashed var(--borda-forte); border-radius: 8px;
+  .coluna-vazia { margin: 0; padding: 12px 6px; text-align: center; color: var(--apagado); border: 1px dashed var(--borda-forte); border-radius: 3px;
     font-size: calc(clamp(11px, 6cqi, max(17px, .9vw)) * var(--e)); }
   .carro { position: relative; display: flex; flex-direction: column; gap: 1px; min-width: 0; padding: calc(8px * var(--e)) calc(10px * var(--e)); background: var(--card);
-    border: 1px solid var(--borda); border-left: 4px solid var(--c); border-radius: 8px; box-shadow: 0 1px 2px #0000000f; }
+    border: 1px solid var(--borda); border-left: 4px solid var(--c); border-radius: 3px; }
+  /* OS que acabou de chegar: um contorno ambar chapado que some (sem sombra) */
   .carro.novo { animation: brilho 2.4s ease-out 1; }
-  @keyframes brilho { 0% { box-shadow: 0 0 0 .3rem var(--cor); } 100% { box-shadow: 0 1px 2px #0000000f; } }
-  @media (prefers-reduced-motion: reduce) { .carro.novo { animation: none; outline: .2rem solid var(--cor); } }
+  @keyframes brilho { 0% { box-shadow: 0 0 0 .3rem var(--ambar); } 100% { box-shadow: 0 0 0 0 transparent; } }
+  @media (prefers-reduced-motion: reduce) { .carro.novo { animation: none; outline: .2rem solid var(--ambar); } }
   .carro-topo { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 0 8px; }
-  .placa { display: inline-block; padding: 0 .3em .05em; border: .08em solid var(--placa-borda); border-top-width: .26em; border-top-color: var(--placa-faixa); border-radius: .2em;
+  .placa { display: inline-block; padding: 0 .3em .05em; border: .08em solid var(--placa-borda); border-top-width: .26em; border-top-color: var(--placa-faixa); border-radius: min(.2em, 6px);
     background: var(--placa-fundo); color: #111; font: 800 calc(clamp(16px, 15cqi, max(42px, 2.19vw)) * var(--e))/1.1 ui-monospace, "Cascadia Mono", Consolas, monospace; letter-spacing: .06em; }
   .num { min-width: 0; font-size: calc(clamp(12px, 7cqi, max(20px, 1.05vw)) * var(--e)); color: var(--apagado); overflow-wrap: anywhere; }
   .modelo { font-weight: 650; font-size: calc(clamp(14px, 9.5cqi, max(27px, 1.4vw)) * var(--e)); overflow-wrap: anywhere; }
   .cliente { color: var(--apagado); font-size: calc(clamp(12px, 8cqi, max(22px, 1.15vw)) * var(--e)); overflow-wrap: anywhere; }
-  .etapa-chip { align-self: flex-start; margin-top: 3px; padding: 0 .5em; border: 1px solid var(--borda-forte); border-radius: 999px; font-size: calc(clamp(11px, 6.5cqi, max(18px, .95vw)) * var(--e)); }
-  .bancada { display: flex; align-items: center; gap: 4px; margin-top: 5px; padding: 2px 6px; border-radius: 6px; font-weight: 650; color: var(--cor);
+  .etapa-chip { align-self: flex-start; margin-top: 3px; padding: 0 .5em; border: 1px solid var(--borda-forte); border-radius: 3px; font-size: calc(clamp(11px, 6.5cqi, max(18px, .95vw)) * var(--e)); }
+  .bancada { display: flex; align-items: center; gap: 4px; margin-top: 5px; padding: 2px 6px; border-radius: 3px; font-weight: 650; color: var(--texto);
     background: var(--card-2); border: 1px solid var(--borda); font-size: calc(clamp(12px, 7.5cqi, max(20px, 1.05vw)) * var(--e)); }
   .bancada[data-estado="terminou"] { color: var(--ok); border-color: var(--ok); background: var(--ok-dim); }
+  /* mudar a etapa (§9.5): um seletor nativo (no celular abre a lista do aparelho) */
+  .mover { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: calc(clamp(12px, 7.5cqi, max(20px, 1.05vw)) * var(--e)); color: var(--apagado); }
+  .mover select { flex: 1; min-width: 0; min-height: 2.2em; padding: .15em .3em; border: 1px solid var(--borda-forte); border-radius: 3px; background: var(--card-2); color: var(--texto); font: inherit; }
+  .envio { margin-top: 4px; font-size: calc(clamp(11px, 6.5cqi, max(18px, .95vw)) * var(--e)); color: var(--apagado); }
+  .envio[data-estado="salvo"] { color: var(--ok); font-weight: 650; }
+  .envio[data-estado="erro"] { color: var(--ruim); font-weight: 650; }
+  #editar[aria-pressed="true"] { background: #ffffff24; border-color: var(--ambar); }
   .rodape { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 10px; margin-top: 5px; color: var(--apagado); font-size: calc(clamp(12px, 7.5cqi, max(20px, 1.05vw)) * var(--e)); }
-  .tempo, .mecanico { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+  .tempo, .mecanico, .tempo-etapa { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+  .tempo-etapa { color: var(--texto); font-weight: 650; }
   .tempo.muito { color: var(--ruim); font-weight: 650; }
   .mecanico { color: var(--texto); font-weight: 650; overflow-wrap: anywhere; }
   .mecanico.sem { color: var(--alerta); }
@@ -122,31 +147,36 @@
   body[data-detalhe="placa"] .cliente, body[data-detalhe="placa"] .etapa-chip, body[data-detalhe="placa"] .bancada, body[data-detalhe="placa"] .rodape,
   body[data-detalhe="placa"] .modelo, body[data-detalhe="placa"] .finalizadas { display: none; }
   /* filtros da TV: quais etapas aparecem e de qual mecanico (so de exibicao, lembrado neste navegador) */
-  .filtros { flex: 0 0 auto; margin: .5rem .7rem 0; display: flex; align-items: center; flex-wrap: wrap; gap: .4rem 1rem; padding: .4rem .7rem; border: 1px solid var(--borda); border-radius: .6rem; background: var(--card-2); font-size: .8rem; }
+  .filtros { flex: 0 0 auto; margin: .5rem .7rem 0; display: flex; align-items: center; flex-wrap: wrap; gap: .4rem 1rem; padding: .4rem .7rem; border: 1px solid var(--borda); border-radius: 3px; background: var(--card-2); font-size: .8rem; }
   .filtros label { display: inline-flex; align-items: center; gap: .3rem; }
-  .filtros select { font: inherit; padding: .15rem .3rem; border-radius: .35rem; border: 1px solid var(--borda-forte); background: var(--card); color: var(--texto); }
+  .filtros select { font: inherit; padding: .15rem .3rem; border-radius: 3px; border: 1px solid var(--borda-forte); background: var(--card); color: var(--texto); }
   .filtros .etapas { display: flex; flex-wrap: wrap; gap: .2rem .8rem; }
-  .filtros .limpar { margin-left: auto; border: 1px solid var(--borda-forte); background: transparent; color: var(--texto); border-radius: .4rem; padding: .15rem .6rem; cursor: pointer; }
-  #filtrar[aria-pressed="true"] { background: #ffffff38; }
+  .filtros input { accent-color: var(--cor); }
+  .filtros .limpar { margin-left: auto; border: 1px solid var(--borda-forte); background: transparent; color: var(--texto); border-radius: 3px; padding: .15rem .6rem; cursor: pointer; }
+  #filtrar[aria-pressed="true"] { background: #ffffff24; border-color: var(--ambar); }
   svg { width: 1.15em; height: 1.15em; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-  .vazio { padding: 1rem; border: 1px dashed var(--borda); border-radius: .8rem; color: var(--apagado); text-align: center; }
+  .vazio { padding: 1rem; border: 1px dashed var(--borda-forte); border-radius: 3px; color: var(--apagado); text-align: center; }
   /* entregues/finalizadas hoje: fora do quadro, uma faixa discreta no rodape (no maximo 2 linhas; as mais novas primeiro) */
   .finalizadas { flex: 0 0 auto; display: flex; align-items: flex-start; gap: .3rem .7rem; max-height: calc(2 * 1.9em + .5rem); overflow: hidden; padding: .3rem .6rem;
-    border: 1px solid var(--borda); border-radius: .6rem; background: var(--card-2); color: var(--apagado); font-size: calc(.75rem * var(--e) / .8); }
+    border: 1px solid var(--borda); border-left: 4px solid var(--ok); border-radius: 3px; background: var(--card-2); color: var(--apagado); font-size: calc(.75rem * var(--e) / .8); }
   .finalizadas > strong { flex: 0 0 auto; color: var(--ok); white-space: nowrap; line-height: 1.9em; }
   .finalizadas ul { display: flex; flex-wrap: wrap; gap: .3rem .9rem; margin: 0; padding: 0; list-style: none; min-width: 0; }
   .finalizadas li { white-space: nowrap; line-height: 1.9em; }
   .finalizadas li b { font: 700 1em ui-monospace, "Cascadia Mono", Consolas, monospace; color: var(--texto); letter-spacing: .04em; }
   .finalizadas time { font-variant-numeric: tabular-nums; }
   /* entrada */
-  .entrada { width: min(26rem, calc(100% - 2rem)); margin: 8vh auto 0; padding: 1.4rem; border-radius: 1rem; background: var(--card); border: 1px solid var(--borda); }
-  .entrada h1 { margin: 0 0 .3rem; font-size: 1.3rem; }
+  .entrada { width: min(26rem, calc(100% - 2rem)); margin: 8vh auto 0; padding: 1.4rem; border-radius: 4px; background: var(--card); border: 1px solid var(--borda); }
+  .entrada h1 { margin: 0 0 .5rem; font: 700 1.9rem/1 var(--titulo); letter-spacing: .01em; text-transform: uppercase; }
   .entrada p { margin: .3rem 0 .8rem; color: var(--apagado); font-size: .9rem; }
   .entrada label { display: block; margin: .7rem 0 0; font-size: .85rem; font-weight: 600; }
-  .entrada input[type=text], .entrada input[type=password] { width: 100%; margin-top: .3rem; padding: .6rem .7rem; border: 1px solid var(--borda); border-radius: .55rem; background: var(--card); color: var(--texto); }
+  .entrada input[type=text], .entrada input[type=password] { width: 100%; margin-top: .3rem; padding: .6rem .7rem; border: 1px solid var(--borda-forte); border-radius: 3px; background: var(--card); color: var(--texto); }
+  .entrada input:focus-visible { outline: 3px solid var(--cor); outline-offset: 1px; }
   .entrada .check { display: flex; align-items: center; gap: .5rem; font-weight: 500; }
-  .entrada button { width: 100%; margin-top: 1rem; padding: .7rem; border: 0; border-radius: .6rem; background: var(--cor); color: #fff; font-weight: 700; cursor: pointer; }
-  :root[data-tema="escuro"] .entrada button { color: #0b1120; }
+  .entrada .check input { accent-color: var(--cor); }
+  /* o botao principal: ambar com letra escura nos dois temas */
+  .entrada button { width: 100%; margin-top: 1rem; padding: .65rem .7rem; border: 0; border-radius: 3px; background: var(--ambar); color: var(--tinta); font: 700 1.2rem/1.2 var(--titulo); letter-spacing: .04em; text-transform: uppercase; cursor: pointer; }
+  .entrada button:hover { background: var(--ambar-claro); }
+  .entrada button:focus-visible { outline: 3px solid var(--texto); outline-offset: 2px; }
   .msg { margin-top: .7rem; font-size: .88rem; color: var(--ruim); min-height: 1.2em; }
   /* celular: as colunas uma embaixo da outra e a pagina rola (a TV nunca chega aqui) */
   @media (max-width: 700px) {
@@ -171,6 +201,7 @@
     <output id="zoom-valor" aria-live="polite">100%</output>
     <button class="icone" type="button" id="mais" title="Letras maiores (tecla +)" aria-label="Letras maiores">A+</button>
   </span>
+  <button class="icone" type="button" id="editar" hidden aria-pressed="false" title="Mostrar o seletor de etapa em cada carro">Mudar etapas</button>
   <button class="icone" type="button" id="filtrar" hidden aria-expanded="false" aria-controls="filtros" title="Escolher as etapas e o mecânico que aparecem">Filtros</button>
   <button class="icone" type="button" id="detalhe" hidden title="Mostrar menos informações em cada carro (para TV pequena)">Detalhes: completo</button>
   <button class="icone" type="button" id="vazias" hidden title="Mostrar ou esconder as colunas sem carro">Esconder vazias</button>
@@ -181,7 +212,7 @@
 
 <form class="entrada" id="tela-entrada" hidden novalidate>
   <h1>Entrar no painel do pátio</h1>
-  <p>Use o login da equipe (o mesmo do programa) ou o e-mail da conta Go Tech. Este painel só mostra os carros: não muda nada.</p>
+  <p>Use o login da equipe (o mesmo do programa) ou o e-mail da conta Go Tech. Dá para mudar a etapa do carro (botão "Mudar etapas"); o resto da OS só muda no programa.</p>
   <label for="login">Login da equipe ou e-mail</label>
   <input type="text" id="login" autocomplete="username" autocapitalize="none" spellcheck="false" required>
   <label for="senha">Senha</label>
@@ -223,7 +254,8 @@
   const pref = (chave, padrao) => { try { return localStorage.getItem(chave) ?? padrao; } catch (e) { return padrao; } };
   const gravarPref = (chave, valor) => { try { localStorage.setItem(chave, valor); } catch (e) { /* sem armazenamento */ } };
   let sessao = lerSessao();   // {access_token, refresh_token, expira, lembrar}
-  const st = { seq: 0, dados: null, quadro: null, nomes: {}, ultimoOk: 0, ultimoCompleto: 0, desvio: 0, vistos: new Map(), timer: 0, rodando: false, erro: '' };
+  const st = { seq: 0, dados: null, quadro: null, nomes: {}, ultimoOk: 0, ultimoCompleto: 0, desvio: 0, vistos: new Map(), timer: 0, rodando: false, erro: '',
+    envios: new Map(), adiado: false };   // envios: ref -> {estado: enviando|salvo|erro, msg, ate} (mudar etapa, §9.5)
 
   // ==== quadro (puro: sem DOM; tests/test_patio_web_quadro.py roda este trecho no Node) ====
   // as etapas e as cores do Patio do programa (banco.ETAPAS_OS e CORES_ETAPA de assets/painel/gestao.js), nessa ordem
@@ -295,7 +327,14 @@
       estado = 'terminou';
       dica = 'O mecânico terminou: falta o chefe de oficina finalizar';
     }
-    return { aberta: min == null ? '' : `aberta ${tempoPatio(min)}`, muito: min != null && min >= 3 * 1440, bancada, estado, dica };
+    // tempo na etapa atual (11/11/2026): o PC publica {etapa, em (UTC)} da ultima mudanca de etapa. So vale se a etapa
+    // ainda e a mesma (mudada aqui pela pagina e o PC ainda nao aplicou: nada) e sem a hora (OS antiga): nada
+    const ed = o.etapa_desde && typeof o.etapa_desde === 'object' ? o.etapa_desde : null;
+    const desde = ed && (ed.etapa || '') === (o.etapa || '') ? dataLocal(ed.em) : null;
+    const me = desde ? minutosDesde(desde, agoraMs) : null;
+    const etapa = me == null ? '' : me < 1 ? 'na etapa agora' : `na etapa há ${duracaoPatio(me)}`;
+    return { aberta: min == null ? '' : `aberta ${tempoPatio(min)}`, muito: min != null && min >= 3 * 1440, bancada, estado, dica,
+      etapa, dicaEtapa: desde ? `Nesta etapa desde ${desde.toLocaleDateString('pt-BR')} às ${desde.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : '' };
   }
   // ==== fim do quadro ====
 
@@ -436,15 +475,48 @@
     }
   }
 
+  // mudar a etapa (§9.5): a nuvem muda na hora; o PC dono da OS grava no programa quando conectar
+  async function editar(ref, etapa) {
+    const corpo = { p_ref: ref, p_etapa: etapa };
+    try { return await chamar('POST', '/rest/v1/rpc/patio_web_editar', corpo, await token()); }
+    catch (e) {
+      if (e.status === 401) return chamar('POST', '/rest/v1/rpc/patio_web_editar', corpo, await token(true));
+      throw e;
+    }
+  }
+  function traduzirEdicao(e) {
+    const t = String((e && e.dados && (e.dados.message || e.dados.code)) || '').toLowerCase() + ' ' + JSON.stringify((e && e.dados) || {}).toLowerCase();
+    if (e && e.rede) return 'Sem internet agora: a etapa não mudou. Tente de novo.';
+    if (t.includes('pgrst202') || t.includes('could not find the function')) return 'A mudança de etapa ainda não foi ativada no servidor (supabase/patio_web_edicao.sql). Avise o escritório.';
+    if (t.includes('muitas mudancas')) return 'Muitas mudanças em pouco tempo: espere um minuto.';
+    if (t.includes('nao esta mais no patio')) return 'Essa OS não está mais no pátio (a tela vai atualizar).';
+    if (t.includes('so os em andamento')) return 'Só OS em andamento muda de etapa pelo pátio.';
+    if (t.includes('sem edicao pela nuvem')) return 'O PC desta OS ainda está numa versão do programa sem esta função: atualize o programa nele.';
+    if (t.includes('nao esta no quadro')) return 'Essa etapa não está no quadro do pátio desta oficina.';
+    if (t.includes('nao pode mudar') || t.includes('licenca')) return 'Este login não pode mudar o pátio.';
+    if (t.includes('etapa invalida') || t.includes('os invalida')) return 'Pedido inválido: atualize a página.';
+    return (e && e.message) || 'A etapa não mudou.';
+  }
+  let modoEditar = pref('gotech-patio-editar', 'nao') === 'sim';   // desligado de fabrica (a TV fica limpa); lembrado neste navegador
+  const podeEditar = () => !!(st.dados && st.dados.pode_editar === true);
+  function pintarEditar() {
+    const b = $('#editar');
+    b.hidden = !sessao || !podeEditar();
+    b.setAttribute('aria-pressed', String(modoEditar));
+    b.textContent = modoEditar ? 'Mudar etapas: ligado' : 'Mudar etapas';
+  }
+  $('#editar').addEventListener('click', () => { modoEditar = !modoEditar; gravarPref('gotech-patio-editar', modoEditar ? 'sim' : 'nao'); pintarEditar(); desenhar(); });
+
   // ---------- entrar e sair ----------
   function mostrar(logado) {
     $('#tela-entrada').hidden = logado; $('#tela-patio').hidden = !logado;
     for (const id of ['#sair', '#sinal', '#zoom', '#filtrar', '#detalhe', '#vazias', '#total']) $(id).hidden = !logado;
+    pintarEditar();
     if (!logado) setTimeout(() => $('#login').focus(), 0);
   }
   function sair() {
     sessao = null; guardar(null);
-    clearTimeout(st.timer); st.seq = 0; st.dados = null; st.quadro = null; st.vistos.clear(); st.desenhou = false; st.ultimoOk = 0; st.erro = '';
+    clearTimeout(st.timer); st.seq = 0; st.dados = null; st.quadro = null; st.vistos.clear(); st.desenhou = false; st.ultimoOk = 0; st.erro = ''; st.envios.clear();
     mostrar(false);
   }
   $('#sair').addEventListener('click', () => {
@@ -472,6 +544,7 @@
 
   // ---------- desenhar ----------
   const ICONE_TEMPO = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
+  const ICONE_ETAPA = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12M6 21h12M7 3v3a5 5 0 0 0 10 0V3M7 21v-3a5 5 0 0 1 10 0v3"/></svg>';
   const ICONE_MECANICO = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/></svg>';
   function cartao(o, variosPcs) {
     const t = textosDoCarro(o, agora());
@@ -485,7 +558,60 @@
       ${o.etapa && o.etapa !== o.coluna ? `<span class="etapa-chip">${esc(st.nomes[o.etapa] || o.etapa)}</span>` : ''}
       <div class="bancada" data-estado="${esc(t.estado)}" title="${esc(t.dica)}"${t.bancada ? '' : ' hidden'}>${ICONE_MECANICO}<span class="bancada-texto">${esc(t.bancada)}</span></div>
       <div class="rodape"><span class="tempo${t.muito ? ' muito' : ''}" title="${entrada ? `Entrada em ${esc(entrada.toLocaleDateString('pt-BR'))} às ${esc(hora(entrada))}` : ''}">${ICONE_TEMPO}<span class="tempo-texto">${esc(t.aberta)}</span></span>
-        <span class="mecanico${mecanico ? '' : ' sem'}" title="Mecânico">${ICONE_MECANICO}${mecanico ? esc(mecanico) : 'Sem mecânico'}</span></div></article>`;
+        <span class="tempo-etapa" title="${esc(t.dicaEtapa)}"${t.etapa ? '' : ' hidden'}>${ICONE_ETAPA}<span class="tempo-etapa-texto">${esc(t.etapa)}</span></span>
+        <span class="mecanico${mecanico ? '' : ' sem'}" title="Mecânico">${ICONE_MECANICO}${mecanico ? esc(mecanico) : 'Sem mecânico'}</span></div>${controleEtapa(o)}</article>`;
+  }
+  // as etapas que o seletor oferece: as colunas do quadro (as do programa) e a atual do carro
+  function etapasDoSeletor(o) {
+    const lista = (st.quadro ? st.quadro.colunas.map(c => c.etapa) : []).filter(e => ETAPAS.includes(e));
+    if (!lista.includes(o.coluna)) lista.push(o.coluna);
+    return ETAPAS.filter(e => lista.includes(e));
+  }
+  function controleEtapa(o) {
+    const env = st.envios.get(o.ref);
+    let estado = '';
+    if (env && env.estado === 'enviando') estado = '<div class="envio" data-estado="enviando" role="status">Salvando…</div>';
+    else if (env && env.estado === 'erro') estado = `<div class="envio" data-estado="erro" role="alert">${esc(env.msg)}</div>`;
+    else if (env && env.estado === 'salvo') estado = '<div class="envio" data-estado="salvo" role="status">Salvo</div>';
+    else if (o.sincronizando === true && modoEditar) estado = '<div class="envio" data-estado="sincronizando" title="A mudança já vale aqui; o PC dono da OS grava no programa quando estiver ligado">sincronizando com o PC</div>';
+    if (!modoEditar || !podeEditar() || o.editavel !== true) return estado;
+    const ocupado = env && env.estado === 'enviando';
+    const opcoes = etapasDoSeletor(o).map(e => `<option value="${esc(e)}"${e === o.coluna ? ' selected' : ''}>${esc(st.nomes[e] || e)}</option>`).join('');
+    return `<label class="mover"><span>Etapa</span><select data-mover="${esc(o.ref)}"${ocupado ? ' disabled' : ''} aria-label="Mudar a etapa da OS ${esc(o.numero ?? '')} ${esc(o.placa || '')}">${opcoes}</select></label>${estado}`;
+  }
+  // o quadro e redesenhado a cada mudanca da nuvem: com o seletor aberto (celular), espera a pessoa escolher
+  function desenharSeLivre() {
+    const ativo = document.activeElement;
+    if (ativo && ativo.matches && ativo.matches('select[data-mover]')) { st.adiado = true; return; }
+    st.adiado = false; desenhar();
+  }
+  $('#quadro').addEventListener('focusout', () => { if (st.adiado) setTimeout(desenharSeLivre, 0); });
+  $('#quadro').addEventListener('change', async ev => {
+    const sel = ev.target && ev.target.closest ? ev.target.closest('select[data-mover]') : null;
+    if (!sel) return;
+    const ref = sel.dataset.mover, etapa = sel.value;
+    const o = st.porRef && st.porRef.get(ref);
+    if (!o || etapa === o.coluna || !ETAPAS.includes(etapa) || (st.envios.get(ref) || {}).estado === 'enviando') return;
+    st.envios.set(ref, { estado: 'enviando' });
+    sel.blur(); desenhar();
+    try {
+      const r = await editar(ref, etapa);
+      const alvo = ((st.dados && st.dados.os) || []).find(x => x && x.ref === ref);
+      if (alvo && r && typeof r.etapa === 'string' && ETAPAS.includes(r.etapa)) { alvo.etapa = r.etapa; if (r.mudou) alvo.sincronizando = true; }
+      st.envios.set(ref, { estado: 'salvo', ate: Date.now() + 6000 });
+      st.seq = 0;   // a proxima rodada traz o quadro inteiro (com a mudanca e o "sincronizando")
+    } catch (e) {
+      if (e.sair) { st.envios.delete(ref); return; }
+      st.envios.set(ref, { estado: 'erro', msg: traduzirEdicao(e), ate: Date.now() + 15000 });
+      st.seq = 0;
+    }
+    desenharSeLivre();
+  });
+  // "Salvo" e o erro somem sozinhos
+  function limparEnvios() {
+    let mudou = false;
+    for (const [ref, env] of st.envios) if (env.ate && env.ate < Date.now()) { st.envios.delete(ref); mudou = true; }
+    if (mudou) desenharSeLivre();
   }
   function desenhar() {
     const d = st.dados;
@@ -512,6 +638,7 @@
       return `<li data-ref="${esc(o.ref)}"><b>${esc(o.placa || '—')}</b> ${esc(o.modelo || '')}${h ? ` <time>${esc(h)}</time>` : ''}</li>`;
     }).join('')}</ul>` : '';
     st.vistos = new Map(q.colunas.flatMap(c => c.os).map(o => [o.ref, o.alterado_em])); st.desenhou = st.ultimoOk > 0;
+    pintarEditar();
     avisos();
   }
   // os tempos andam sozinhos a cada segundo (so o texto muda: sem redesenhar o quadro nem piscar)
@@ -522,7 +649,8 @@
       const o = st.porRef.get(el.dataset.ref);
       if (!o) continue;
       const t = textosDoCarro(o, ms);
-      const tt = el.querySelector('.tempo-texto'), bt = el.querySelector('.bancada-texto');
+      const tt = el.querySelector('.tempo-texto'), bt = el.querySelector('.bancada-texto'), et = el.querySelector('.tempo-etapa-texto');
+      if (et && et.textContent !== t.etapa) { et.textContent = t.etapa; et.parentElement.hidden = !t.etapa; }
       if (tt && tt.textContent !== t.aberta) { tt.textContent = t.aberta; tt.parentElement.classList.toggle('muito', t.muito); }
       if (bt && bt.textContent !== t.bancada) { bt.textContent = t.bancada; bt.parentElement.hidden = !t.bancada; }
     }
@@ -545,7 +673,7 @@
     el.dataset.estado = s > 120 ? 'parado' : s > 30 ? 'atrasado' : '';
     el.textContent = s < 10 ? 'ao vivo' : s < 120 ? `há ${s} s` : `parado há ${Math.floor(s / 60)} min`;
   }
-  setInterval(() => { relogio(); if (sessao && st.dados) tempos(); }, 1000); relogio();
+  setInterval(() => { relogio(); if (sessao && st.dados) { tempos(); limparEnvios(); } }, 1000); relogio();
   setInterval(() => { if (sessao) { sinal(); avisos(); } }, 15000);
 
   // ---------- rodada ----------
@@ -561,12 +689,12 @@
       st.seq = Number((d && d.seq) || 0);
       const vinhaComErro = !!st.erro;
       st.ultimoOk = Date.now(); st.erro = ''; st.erroStatus = 0;
-      if (mudou || !st.quadro) desenhar(); else if (vinhaComErro) avisos();
+      if (mudou || !st.quadro) desenharSeLivre(); else if (vinhaComErro) avisos();
     } catch (e) {
       if (e.sair) { st.erro = e.message; $('#entrada-msg').textContent = e.message; return; }
       st.erro = e.message; st.erroStatus = e.status || 0;
       if (!st.dados) st.dados = { os: [], pcs: [] };
-      desenhar();
+      desenharSeLivre();
     } finally {
       st.rodando = false; sinal(); agendar();
     }
